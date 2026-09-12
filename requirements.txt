@@ -1,0 +1,17 @@
+# Core ML stack (CPU wheels; install torch/torchvision from the CPU index if no GPU:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu)
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26
+opencv-python>=4.9,<5          # 4.x required: opencv-python 5.0 dropped the bundled Haar cascades
+scikit-learn>=1.4
+Pillow>=10.0
+certifi>=2024.2
+
+# Minimal demo UI
+streamlit>=1.32
+
+# Optional face detector (MTCNN). The default detector is OpenCV's bundled
+# Haar cascade, which needs no extra dependency. Install this only if you
+# want --face-detector mtcnn:
+#   pip install facenet-pytorch
