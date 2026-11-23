@@ -23,6 +23,11 @@ class VideoItem:
     path: str
     label: int          # REAL = 0, FAKE = 1
     video_id: str       # unique key, also used as the preprocessing cache key
+    group: str = ""     # source video; videos sharing a group never cross splits
+
+    @property
+    def group_key(self) -> str:
+        return self.group or self.video_id
 
 
 def _video_id(path: str, label: int) -> str:
@@ -56,9 +61,10 @@ def discover_videos(real_dir: str, fake_dir: str, limit: int = 0) -> List[VideoI
 
 
 def load_manifest(path: str, limit: int = 0) -> List[VideoItem]:
-    """Load videos from a CSV manifest with columns: path,label[,video_id].
+    """Load videos from a CSV manifest with columns: path,label[,video_id,group].
 
-    `label` accepts 0/1 or the strings REAL/FAKE (case-insensitive).
+    `label` accepts 0/1 or the strings REAL/FAKE (case-insensitive). `group`
+    names the source video a fake was made from (its own id for a real one).
     """
     items: List[VideoItem] = []
     counts = {REAL: 0, FAKE: 0}
@@ -73,7 +79,8 @@ def load_manifest(path: str, limit: int = 0) -> List[VideoItem]:
             counts[label] += 1
             video_path = row["path"].strip()
             items.append(VideoItem(video_path, label,
-                                   row.get("video_id") or _video_id(video_path, label)))
+                                   row.get("video_id") or _video_id(video_path, label),
+                                   (row.get("group") or "").strip()))
     return items
 
 
@@ -81,9 +88,9 @@ def write_manifest(items: Sequence[VideoItem], path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["path", "label", "video_id"])
+        writer.writerow(["path", "label", "video_id", "group"])
         for item in items:
-            writer.writerow([item.path, item.label, item.video_id])
+            writer.writerow([item.path, item.label, item.video_id, item.group])
 
 
 def split_videos(items: Sequence[VideoItem], train_ratio: float = 0.70,
@@ -91,16 +98,24 @@ def split_videos(items: Sequence[VideoItem], train_ratio: float = 0.70,
                  seed: int = 42) -> Dict[str, List[VideoItem]]:
     """Split videos into train/val/test, stratified by class, seeded.
 
-    Shuffling is done per class with a fixed seed, so the split is reproducible
-    and class balance is preserved as closely as the counts allow.
+    The unit of splitting is the source group (`VideoItem.group_key`), so a fake
+    always lands in the same split as the real video it was made from. A group
+    counts as REAL if it holds any real video, FAKE otherwise. Without groups
+    every video is its own group. Shuffling is per class with a fixed seed, so
+    the split is reproducible; ratios apply to groups, not videos.
     """
     total = train_ratio + val_ratio + test_ratio
     if abs(total - 1.0) > 1e-6:
         raise ValueError(f"split ratios must sum to 1.0, got {total}")
 
+    groups: Dict[str, List[VideoItem]] = {}
+    for item in items:
+        groups.setdefault(item.group_key, []).append(item)
+
     splits: Dict[str, List[VideoItem]] = {"train": [], "val": [], "test": []}
     for label in (REAL, FAKE):
-        group = sorted([i for i in items if i.label == label], key=lambda i: i.video_id)
+        group = sorted(k for k, g in groups.items()
+                       if (REAL if any(i.label == REAL for i in g) else FAKE) == label)
         random.Random(seed).shuffle(group)
         n = len(group)
         n_train = int(round(n * train_ratio))
@@ -109,9 +124,11 @@ def split_videos(items: Sequence[VideoItem], train_ratio: float = 0.70,
         if n >= 3:
             n_train = min(max(n_train, 1), n - 2)
             n_val = min(max(n_val, 1), n - n_train - 1)
-        splits["train"].extend(group[:n_train])
-        splits["val"].extend(group[n_train:n_train + n_val])
-        splits["test"].extend(group[n_train + n_val:])
+        for name, keys in (("train", group[:n_train]),
+                           ("val", group[n_train:n_train + n_val]),
+                           ("test", group[n_train + n_val:])):
+            for key in keys:
+                splits[name].extend(sorted(groups[key], key=lambda i: i.video_id))
     return splits
 
 
@@ -126,15 +143,16 @@ def split_summary(splits: Dict[str, List[VideoItem]]) -> str:
 
 
 def assert_no_leakage(splits: Dict[str, List[VideoItem]]) -> None:
-    """Raise if any video id appears in more than one split."""
-    seen: Dict[str, str] = {}
-    for name, group in splits.items():
-        for item in group:
-            if item.video_id in seen:
-                raise AssertionError(
-                    f"video {item.video_id!r} appears in both "
-                    f"{seen[item.video_id]!r} and {name!r} splits")
-            seen[item.video_id] = name
+    """Raise if any video id or source group appears in more than one split."""
+    for attr in ("video_id", "group_key"):
+        seen: Dict[str, str] = {}
+        for name, group in splits.items():
+            for item in group:
+                key = getattr(item, attr)
+                if seen.setdefault(key, name) != name:
+                    raise AssertionError(
+                        f"{attr} {key!r} appears in both "
+                        f"{seen[key]!r} and {name!r} splits")
 
 
 def build_items(config) -> List[VideoItem]:

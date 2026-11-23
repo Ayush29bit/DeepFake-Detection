@@ -35,13 +35,15 @@ class Prediction:
     frames_used: int
     faces_detected: int      # frames where the detector found a face
     face_crops: Optional[np.ndarray] = None  # (T, H, W, 3) uint8, if requested
+    checkpoint: str = ""     # checkpoint the model was loaded from, if known
 
     def summary(self) -> str:
         return (f"Prediction: {self.label}\n"
                 f"Confidence: {self.confidence * 100:.1f}%\n"
                 f"P(FAKE):    {self.fake_probability:.4f}\n"
                 f"Frames:     {self.frames_used} "
-                f"({self.faces_detected} with a detected face)")
+                f"({self.faces_detected} with a detected face)\n"
+                f"Model:      {self.checkpoint or 'n/a'}")
 
 
 def extract_face_sequence(video_path: str, num_frames: int, image_size: int,
@@ -88,8 +90,10 @@ def predict_from_checkpoint(video_path: str, checkpoint: str, device: str = "aut
     if device != "auto":
         resolved = torch.device(device)
         model.to(resolved)
-    return predict_video(video_path, model, saved, device=resolved,
-                         return_crops=return_crops)
+    result = predict_video(video_path, model, saved, device=resolved,
+                           return_crops=return_crops)
+    result.checkpoint = checkpoint
+    return result
 
 
 def main() -> None:
@@ -100,7 +104,10 @@ def main() -> None:
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     args = parser.parse_args()
 
-    result = predict_from_checkpoint(args.video, args.checkpoint, device=args.device)
+    try:
+        result = predict_from_checkpoint(args.video, args.checkpoint, device=args.device)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SystemExit(f"error: could not process {args.video}: {exc}")
     print(result.summary())
 
 

@@ -21,11 +21,27 @@ preprocessed. See [`CLAUDE.md`](../CLAUDE.md) for overall scope.
   once baseline/hybrid models are already trained and evaluation
   infrastructure (`docs/evaluation.md`) is in place.
 
-## DFDC (Optional)
+## DFDC (used for the first real experiments)
 
-- Optional and explicitly **not required** for the current milestone.
-- May be considered later for additional generalization testing, only after
-  FaceForensics++ and (optionally) Celeb-DF work is complete.
+- FaceForensics++ access was not available in time for the second
+  evaluation, so the first real experiments use the publicly downloadable
+  **DFDC training sample** (`train_sample_videos`, 400 labelled videos, from the
+  Kaggle Deepfake Detection Challenge; the videos must not be redistributed).
+  The official competition download was blocked for our account (HTTP 403,
+  rules acceptance not registering), so the files were taken from the Kaggle
+  re-upload `francisbawa/dfdc-train-sample` (400 `.mp4` + the original
+  `metadata.json`; file names match the official sample). This is an
+  unofficial copy and must be disclosed as such in any report.
+- Layout: `data/raw/dfdc/*.mp4`, `data/raw/dfdc/metadata.json`,
+  `data/raw/dfdc/manifest.csv` (gitignored). 400 videos: 77 REAL, 323 FAKE,
+  244 source groups. Seed-42 grouped split: train 294 (54 REAL / 240 FAKE),
+  val 54 (12 / 42), test 52 (11 / 41).
+- `python -m preprocessing.make_manifest --metadata <folder>/metadata.json
+  --output <manifest.csv>` turns DFDC's `metadata.json` into a manifest. Each
+  fake's `original` becomes its `group`, so a fake and its source video always
+  land in the same split (see below).
+- FaceForensics++ remains the primary dataset once access is granted; the same
+  pipeline runs on it with a manifest.
 
 ## Train/Validation/Test Strategy
 
@@ -38,10 +54,18 @@ preprocessed. See [`CLAUDE.md`](../CLAUDE.md) for overall scope.
   use those as the default split. Otherwise, split video IDs (not frames)
   with a fixed random seed for reproducibility, roughly 70/15/15 or
   matching whatever official split is available.
-- Class balance (REAL vs FAKE) should be checked per split; FaceForensics++
-  has more FAKE videos than REAL (multiple manipulation methods per real
-  video), so consider balancing at the sampling stage (e.g. weighted
-  sampling or capping fakes per real video) if the imbalance is severe.
+- **Source groups.** Fakes are made from real source videos. A manifest may
+  give each video a `group` (the source video id); `split_videos` splits whole
+  groups, so no source video and its manipulated versions straddle train and
+  test. A group counts as REAL for stratification if it holds a real video.
+  Ratios therefore apply to groups, and per-split video counts can drift from
+  70/15/15. `assert_no_leakage` checks both video ids and groups.
+- Class balance (REAL vs FAKE) is printed per split. FaceForensics++ and DFDC
+  both hold several fakes per real video; the training loss weights the FAKE
+  class by `n_real / n_fake` from the train split (`pos_weight` of
+  `BCEWithLogitsLoss`, 1.0 on balanced data), so the model cannot reach a low
+  loss by predicting FAKE everywhere. Validation and test losses are
+  unweighted.
 
 ## Frame Sampling
 

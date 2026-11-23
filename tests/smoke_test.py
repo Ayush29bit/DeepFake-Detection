@@ -22,7 +22,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from evaluation.metrics import compute_metrics, format_metrics
+from evaluation.metrics import compute_metrics, format_metrics, youden_threshold
 from inference.predict import predict_video
 from models.baseline import ResNetBaseline
 from models.frequency import FrequencyBranch, FrequencyCNN, fft_log_magnitude
@@ -31,7 +31,7 @@ from preprocessing.dataset import VideoFaceDataset, build_dataloader
 from preprocessing.face import FaceExtractor
 from preprocessing.splits import (assert_no_leakage, discover_videos, load_manifest,
                                   split_videos, write_manifest,
-                                  split_summary)
+                                  split_summary, VideoItem)
 from preprocessing.video import VideoReader, load_sampled_frames, sample_indices
 from tests.make_synthetic_videos import build_dataset
 from training.config import Config
@@ -188,9 +188,27 @@ def main() -> int:
         assert [(i.video_id, i.label) for i in reloaded] == \
                [(i.video_id, i.label) for i in splits["train"]], "manifest mismatch"
 
+        # Source groups: each real plus the fakes made from it must stay together.
+        grouped = [VideoItem(f"r{g}.mp4", 0, f"r{g}", f"r{g}") for g in range(10)]
+        grouped += [VideoItem(f"f{g}_{k}.mp4", 1, f"f{g}_{k}", f"r{g}")
+                    for g in range(10) for k in range(3)]
+        gsplits = split_videos(grouped, 0.70, 0.15, 0.15, seed=42)
+        assert_no_leakage(gsplits)
+        for name, group in gsplits.items():
+            for item in group:
+                assert all(other.group_key != item.group_key
+                           for other_name, other_group in gsplits.items()
+                           if other_name != name for other in other_group)
+        assert sum(map(len, gsplits.values())) == len(grouped)
+        try:
+            assert_no_leakage({"train": [grouped[0]], "test": [grouped[10]]})
+            raise AssertionError("group leakage was not detected")
+        except AssertionError as exc:
+            assert "group_key" in str(exc), exc
+
         state["splits"] = splits
-        return ("no video appears in two splits; same seed reproduces the split; "
-                "manifest round-trips\n" + split_summary(splits))
+        return ("no video or source group appears in two splits; same seed "
+                "reproduces the split; manifest round-trips\n" + split_summary(splits))
 
     check("06 video-level split, no leakage, reproducible", t06)
 
@@ -348,7 +366,8 @@ def main() -> int:
         single = compute_metrics([1, 1], [0.9, 0.8])
         assert single["roc_auc"] is None, "ROC-AUC must be None for a single class"
         assert format_metrics(m)
-        return "metrics match hand-computed values on a known example"
+        assert abs(youden_threshold([0, 0, 1, 1], [0.1, 0.3, 0.35, 0.8]) - 0.35) < 1e-9
+        return "metrics and Youden threshold match hand-computed values"
 
     check("16 metrics are correct on a known example", t16)
 

@@ -122,7 +122,13 @@ def train(config: Config) -> Dict[str, object]:
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[train] model={config.model} device={device} trainable_params={n_params:,}")
 
+    # Weight FAKE by n_real/n_fake so an imbalanced train split (DFDC is ~4:1
+    # fake) cannot be fit by predicting FAKE everywhere. 1.0 when balanced.
+    n_fake = sum(i.label == 1 for i in splits["train"])
+    pos_weight = (len(splits["train"]) - n_fake) / max(n_fake, 1)
+    train_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, device=device))
     criterion = nn.BCEWithLogitsLoss()
+    print(f"[train] train-loss pos_weight (FAKE) = {pos_weight:.3f}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,
                                   weight_decay=config.weight_decay)
 
@@ -141,7 +147,7 @@ def train(config: Config) -> Dict[str, object]:
     # ------------------------------------------------------------- epochs
     for epoch in range(1, config.num_epochs + 1):
         started = time.time()
-        train_loss, y_true, y_prob = run_epoch(model, train_loader, criterion,
+        train_loss, y_true, y_prob = run_epoch(model, train_loader, train_criterion,
                                                device, optimizer)
         train_metrics = compute_metrics(y_true, y_prob, threshold=config.threshold)
         val_metrics = evaluate(model, val_loader, criterion, device, config.threshold)

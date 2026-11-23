@@ -23,6 +23,7 @@ DeepFake-Detection/
     face.py                # face detection, cropping, fallback chain
     dataset.py             # PyTorch Dataset + DataLoader + augmentation
     splits.py              # video-level train/val/test split logic
+    make_manifest.py       # DFDC metadata.json -> manifest with source groups
   models/
     baseline.py            # SpatialBranch (backbone) + ResNetBaseline
     frequency.py           # FFT log-magnitude + lightweight FrequencyCNN
@@ -33,6 +34,7 @@ DeepFake-Detection/
   evaluation/
     metrics.py             # accuracy/precision/recall/F1/ROC-AUC/confusion matrix
     evaluate.py            # evaluate a checkpoint on a held-out split
+    compare.py             # Markdown comparison table from saved eval JSON
   inference/
     predict.py             # end-to-end video -> REAL/FAKE + confidence
   app/
@@ -114,7 +116,9 @@ that does and does not mean.
   sequences are not cached, so the cache always holds deterministic sampling.
 - `preprocessing/splits.py`: `discover_videos` / `load_manifest` collect videos,
   and `split_videos` splits them at the video level, stratified by class and
-  seeded. `assert_no_leakage` fails loudly if a video id lands in two splits.
+  seeded. Videos sharing a source `group` (from the manifest) are split
+  together, and `assert_no_leakage` fails loudly if a video id or a group lands
+  in two splits.
 - `build_dataloader` wraps the dataset in a standard `DataLoader`.
 
 ### Phase 3 — Baseline
@@ -167,7 +171,8 @@ that does and does not mean.
   undefined.
 - `evaluation/evaluate.py` rebuilds the model from a checkpoint, regenerates
   the same seeded split, and scores a chosen split, writing JSON to
-  `runs/eval/`.
+  `runs/eval/`. `evaluation/compare.py` renders several of those files as the
+  comparison table in [`evaluation.md`](evaluation.md).
 - See [`evaluation.md`](evaluation.md) for the comparison protocol.
 
 ### Phase 8 — Inference
@@ -200,10 +205,29 @@ clips means anything about detection performance.**
 
 ## Status
 
-Implemented and executed end to end on synthetic smoke data. Not yet run on
-FaceForensics++ — see [`datasets.md`](datasets.md). No real experimental
-results exist yet, and [`evaluation.md`](evaluation.md) must stay empty of
-numbers until they do.
+Implemented, smoke-tested (19/19), and run on real data: the DFDC training
+sample (see [`datasets.md`](datasets.md)). Both models have been trained on CPU,
+evaluated on a held-out, source-grouped test split, and used for video
+inference and in the Streamlit demo. Results and their limits are in
+[`evaluation.md`](evaluation.md). FaceForensics++ has not been run yet.
+
+## Commands (DFDC)
+
+```
+python -m preprocessing.make_manifest --metadata data/raw/dfdc/metadata.json --output data/raw/dfdc/manifest.csv
+python -m training.train --model baseline --manifest data/raw/dfdc/manifest.csv --train-jitter false --num-epochs 5 --batch-size 2 --best-metric roc_auc --run-name dfdc_baseline
+python -m training.train --model hybrid   --manifest data/raw/dfdc/manifest.csv --train-jitter false --num-epochs 5 --batch-size 2 --best-metric roc_auc --run-name dfdc_hybrid
+python -m evaluation.evaluate --checkpoint checkpoints/dfdc_hybrid_best.pt --manifest data/raw/dfdc/manifest.csv --split test [--val-threshold]
+python -m evaluation.compare runs/eval/dfdc_*_test*.json
+python -m inference.predict --video <video.mp4> --checkpoint checkpoints/dfdc_hybrid_best.pt
+streamlit run app/app.py
+python -m tests.smoke_test
+```
+
+`--train-jitter false` lets training reuse the cached face crops; with jitter on,
+every epoch re-decodes the 1080p DFDC videos (~5 s per video on this CPU).
+On a Windows host with a small page file, close WSL/Docker before training: the
+first baseline run died with an out-of-memory error at epoch 3.
 
 ## Notes
 

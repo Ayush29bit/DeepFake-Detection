@@ -53,6 +53,15 @@ def compute_metrics(y_true: Sequence[int], y_prob: Sequence[float],
     }
 
 
+def youden_threshold(y_true: Sequence[int], y_prob: Sequence[float]) -> float:
+    """Threshold maximising TPR - FPR. Pick it on validation, never on test."""
+    from sklearn.metrics import roc_curve
+
+    fpr, tpr, thresholds = roc_curve(np.asarray(y_true).astype(int), np.asarray(y_prob))
+    best = int(np.argmax(tpr - fpr))
+    return float(min(thresholds[best], 1.0))  # roc_curve's first threshold is inf
+
+
 def format_metrics(metrics: Dict[str, object], title: str = "") -> str:
     """Render a metrics dict as a short text block, including the matrix."""
     cm = metrics.get("confusion_matrix", {})

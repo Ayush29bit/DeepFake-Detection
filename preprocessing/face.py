@@ -92,12 +92,17 @@ class FaceExtractor:
 
     def _detect_haar(self, frame_rgb: np.ndarray) -> Optional[Box]:
         gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
+        # Detect on a <=640px copy: Haar on full 1080p frames is several times
+        # slower and the face boxes are mapped back to full resolution anyway.
+        scale = min(1.0, 640.0 / max(gray.shape))
+        if scale < 1.0:
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         gray = cv2.equalizeHist(gray)
         faces = self._cascade.detectMultiScale(gray, scaleFactor=1.1,
                                                minNeighbors=5, minSize=(30, 30))
         if len(faces) == 0:
             return None
-        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        x, y, w, h = (v / scale for v in max(faces, key=lambda f: f[2] * f[3]))
         return (int(x), int(y), int(x + w), int(y + h))
 
     def _detect_mtcnn(self, frame_rgb: np.ndarray) -> Optional[Box]:  # pragma: no cover
