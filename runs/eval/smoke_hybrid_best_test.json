@@ -1,0 +1,27 @@
+{
+  "n": 2,
+  "threshold": 0.5,
+  "accuracy": 0.5,
+  "precision": 0.5,
+  "recall": 1.0,
+  "f1": 0.6666666666666666,
+  "roc_auc": 1.0,
+  "confusion_matrix": {
+    "tn": 0,
+    "fp": 1,
+    "fn": 0,
+    "tp": 1
+  },
+  "support": {
+    "real": 1,
+    "fake": 1
+  },
+  "loss": 0.7919164896011353,
+  "checkpoint": "checkpoints/smoke_hybrid_best.pt",
+  "split": "test",
+  "model": "hybrid",
+  "backbone": "resnet18",
+  "seed": 42,
+  "use_frequency": true,
+  "use_temporal": true
+}

@@ -9,4 +9,5 @@ checkpoints/*
 !checkpoints/.gitkeep
 runs/*
 !runs/.gitkeep
+!runs/eval/
 *.log
