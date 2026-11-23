@@ -134,7 +134,7 @@ Test split of the DFDC sample (48 to 69 videos per seed), threshold 0.5,
 
 | Model | Seed | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---|---:|---:|---:|---:|---:|
-| ResNet18 baseline | 42 | 0.442 | 1.000 | 0.293 | 0.453 | 0.752 |
+| ResNet18 baseline | 42 | 0.327 | 0.875 | 0.171 | 0.286 | 0.665 |
 | ResNet18 baseline | 7 | 0.464 | 0.839 | 0.448 | 0.584 | 0.669 |
 | ResNet18 baseline | 123 | 0.542 | 0.895 | 0.459 | 0.607 | 0.767 |
 | Hybrid | 42 | 0.692 | 0.857 | 0.732 | 0.789 | 0.612 |
@@ -144,12 +144,14 @@ Test split of the DFDC sample (48 to 69 videos per seed), threshold 0.5,
 
 How to read these numbers:
 
-- At threshold 0.5 the hybrid has higher accuracy and F1 than the baseline on
-  every seed. ROC-AUC, which does not depend on the threshold, is mixed.
-- When the threshold is chosen on the validation split, the seed-42 baseline
-  reaches F1 0.894, higher than the hybrid's 0.815. Much of the gap at 0.5
-  comes from where the threshold sits, not from how well the models rank
-  videos.
+- The hybrid has higher accuracy and F1 than the baseline on every seed, both
+  at threshold 0.5 and with the threshold chosen on the validation split
+  (F1 0.815 / 0.923 / 0.806 against 0.779 / 0.565 / 0.582).
+- ROC-AUC, which does not depend on the threshold, is close: mean 0.715 for
+  the hybrid against 0.700 for the baseline, and the hybrid is lower on seed 42.
+- The ablation without the Transformer scored higher than the full hybrid on
+  seed 42 (ROC-AUC 0.827), so these runs do not yet show that the temporal
+  module helps.
 - The test sets are small, so one video moves accuracy by about 2 points, and
   the classes are imbalanced (about 80% FAKE). Treat these numbers as early
   evidence, not a final result.
