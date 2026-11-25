@@ -29,6 +29,16 @@ Video
 Baseline: ResNet18 scores each frame on its own, and the frame logits are
 averaged to give one score per video.
 
+What the model sees: the 8 face crops sampled from one video,
+
+![Eight face crops sampled from one real test video](paper/figures/frame_sequence.png)
+
+and, for the frequency branch, the log-magnitude Fourier spectrum of each crop:
+
+<p align="center">
+  <img src="paper/figures/fft_examples.png" alt="Face crops and their log-magnitude FFT spectra" width="60%">
+</p>
+
 Full details are in [docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
@@ -128,13 +138,10 @@ Demo UI:
 streamlit run app/app.py
 ```
 
-Paper: rebuild the ROC and confusion-matrix figures from `runs/eval/`, then
-package `paper/` for Overleaf (the zip uses forward-slash paths so Overleaf
-keeps the `figures/` and `data/` folders):
+Rebuild the ROC and confusion-matrix figures from `runs/eval/`:
 
 ```bash
 python paper/figures/make_eval_figures.py
-python paper/make_overleaf_zip.py
 ```
 
 ## Results
@@ -142,8 +149,7 @@ python paper/make_overleaf_zip.py
 Test splits of the DFDC sample (48 to 69 videos, 11 of them real, per seed),
 5 epochs, mean ± standard deviation over seeds 42, 7 and 123. F1 uses the
 threshold chosen on the validation split. Per-run numbers with 95% bootstrap
-intervals are in [runs/eval/dfdc_comparison_ci.md](runs/eval/dfdc_comparison_ci.md);
-ROC curves and confusion matrices are in [paper/figures/](paper/figures/).
+intervals are in [runs/eval/dfdc_comparison_ci.md](runs/eval/dfdc_comparison_ci.md).
 
 | Model | F1 | ROC-AUC |
 |---|---:|---:|
@@ -151,6 +157,16 @@ ROC curves and confusion matrices are in [paper/figures/](paper/figures/).
 | Hybrid without Transformer | 0.792 ± 0.061 | 0.745 ± 0.073 |
 | Hybrid (proposed) | 0.848 ± 0.065 | 0.715 ± 0.107 |
 | Always FAKE (reference) | 0.889 ± 0.022 | 0.500 |
+
+ROC curves on each seed's test split:
+
+![Test ROC curves for seeds 42, 7 and 123](paper/figures/roc_curves.png)
+
+Confusion matrices at the threshold chosen on the validation split:
+
+<p align="center">
+  <img src="paper/figures/confusion_matrices.png" alt="Test confusion matrices for each model and seed" width="70%">
+</p>
 
 How to read these numbers:
 
