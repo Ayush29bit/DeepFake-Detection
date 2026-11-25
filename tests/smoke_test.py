@@ -22,7 +22,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from evaluation.metrics import bootstrap_ci, compute_metrics, format_metrics, youden_threshold
+from evaluation.metrics import (bootstrap_ci, compute_metrics, delong_test, format_metrics,
+                                youden_threshold)
 from inference.predict import predict_video
 from models.baseline import ResNetBaseline
 from models.frequency import FrequencyBranch, FrequencyCNN, fft_log_magnitude
@@ -373,7 +374,11 @@ def main() -> int:
             assert 0 <= low <= point <= high <= 1, (key, ci[key], point)
         perfect = bootstrap_ci([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9], n_boot=50)
         assert perfect["roc_auc"] == (1.0, 1.0), perfect
-        return "metrics, Youden threshold and bootstrap CIs match hand-computed values"
+        d = delong_test(y_true, y_prob, [0.2, 0.1, 0.8, 0.9, 0.3, 0.7])
+        assert abs(d["auc_a"] - m["roc_auc"]) < 1e-9 and d["auc_b"] == 1.0, d
+        assert 0 < d["p_value"] < 1, d
+        assert delong_test(y_true, y_prob, y_prob)["p_value"] == 1.0
+        return "metrics, Youden threshold, bootstrap CIs and DeLong test match hand-computed values"
 
     check("16 metrics are correct on a known example", t16)
 

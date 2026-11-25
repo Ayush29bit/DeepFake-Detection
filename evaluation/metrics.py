@@ -87,6 +87,38 @@ def bootstrap_ci(y_true: Sequence[int], y_prob: Sequence[float], threshold: floa
             "f1": tuple(float(v) for v in np.percentile(f1s, q))}
 
 
+def delong_test(y_true: Sequence[int], prob_a: Sequence[float],
+                prob_b: Sequence[float]) -> Dict[str, float]:
+    """Paired DeLong test for two ROC-AUCs measured on the same videos.
+
+    Fast algorithm of Sun & Xu (2014). Returns both AUCs, the z statistic and
+    the two-sided p-value. Identical score sets give z = 0, p = 1.
+    """
+    from scipy.stats import norm, rankdata
+
+    y_true = np.asarray(list(y_true)).astype(int)
+    scores = np.vstack([np.asarray(list(prob_a), float), np.asarray(list(prob_b), float)])
+    pos, neg = scores[:, y_true == 1], scores[:, y_true == 0]
+    m, n = pos.shape[1], neg.shape[1]
+    if m == 0 or n == 0:
+        raise ValueError("delong_test needs both classes")
+    tx = np.apply_along_axis(rankdata, 1, pos)
+    ty = np.apply_along_axis(rankdata, 1, neg)
+    tz = np.apply_along_axis(rankdata, 1, np.hstack([pos, neg]))
+    aucs = (tz[:, :m].sum(axis=1) / m - (m + 1) / 2.0) / n
+    v01 = (tz[:, :m] - tx) / n            # structural components over fakes
+    v10 = 1.0 - (tz[:, m:] - ty) / m      # ... and over reals
+    cov = np.cov(v01) / m + np.cov(v10) / n
+    var = cov[0, 0] + cov[1, 1] - 2 * cov[0, 1]
+    diff = aucs[0] - aucs[1]
+    if var <= 1e-12:
+        z, p = 0.0, 1.0
+    else:
+        z = float(diff / np.sqrt(var))
+        p = float(2 * norm.sf(abs(z)))
+    return {"auc_a": float(aucs[0]), "auc_b": float(aucs[1]), "z": z, "p_value": p}
+
+
 def format_metrics(metrics: Dict[str, object], title: str = "") -> str:
     """Render a metrics dict as a short text block, including the matrix."""
     cm = metrics.get("confusion_matrix", {})
