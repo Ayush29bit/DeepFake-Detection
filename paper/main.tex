@@ -24,7 +24,7 @@
 
 \begin{document}
 
-\title{Deepfake Video Detection via Hybrid Spatial--Frequency Feature Fusion and Transformer-Based Temporal Modeling}
+\title{Spatial--Frequency Fusion and Temporal Transformers for Deepfake Video Detection: A Leakage-Aware Evaluation}
 
 % Three authors on the first row, two centred on the second.
 \author{
@@ -52,30 +52,27 @@ Delhi-NCR, Ghaziabad, India}
 \maketitle
 
 \begin{abstract}
-Manipulated face videos have become cheap to make and hard to tell from
-genuine footage by eye, so journalists, platforms and forensic analysts
-increasingly need automatic help. Most detectors in use today classify single
-frames in the pixel domain. That leaves two sources of evidence unused: the
-traces that generators leave in the frequency spectrum, and the way a
-synthesised face can drift from one frame to the next. In this paper we
-describe the design, implementation and evaluation of a video-level detector
-that draws on all three. An ImageNet-pretrained ResNet18 handles spatial
-appearance, a small convolutional network reads the log-magnitude 2D Fourier
-spectrum of each face, and a Transformer encoder models the sequence of fused
-per-frame embeddings. We built the whole pipeline in PyTorch, from frame
-sampling and face cropping through to training, evaluation, single-video
-inference and a web demo, and trained it on a laptop CPU. On the 400-video
-training sample of the DeepFake Detection Challenge (DFDC), with splits that
-keep every fake alongside its source video, we compared the hybrid model, a
-variant without the Transformer and a frame-level ResNet18 baseline over three
-random seeds. Both models with the frequency branch reached a higher F1 than
-the baseline on every seed (mean 0.848 and 0.792 against 0.642 at a threshold
-chosen on validation data), but test ROC-AUC was close (mean 0.715, 0.745 and
-0.700), and the Transformer gave no consistent gain over simple averaging.
-Each test split holds only 11 real videos, so the 95\% bootstrap intervals
-overlap for every pair of models and none of these differences is
-statistically established. We report the numbers as we found them and set out
-what it would take to settle the question.
+Hybrid deepfake detectors increasingly combine pixel-domain appearance,
+frequency-domain artifacts and temporal cues, but the contribution of each
+component is rarely isolated under a protocol that prevents leakage and
+accounts for small test sets. We build a video-level detector in which an
+ImageNet-pretrained ResNet18 encodes each face crop, a lightweight
+convolutional network encodes its log-magnitude 2D Fourier spectrum, and a
+Transformer encoder models the sequence of fused per-frame embeddings. On the
+400-video DeepFake Detection Challenge (DFDC) training sample, with splits that
+keep every fake with its source video and thresholds chosen on validation data
+only, we compare the hybrid with an ablation that replaces the Transformer by
+temporal averaging and with a frame-level ResNet18 baseline over three random
+seeds. Both frequency-augmented models reach a higher F1 than the baseline on
+every seed (mean 0.848 and 0.792 against 0.642), but test ROC-AUC is similar
+(0.715, 0.745 and 0.700), the Transformer gives no consistent gain over
+averaging, and paired DeLong tests find no significant difference in any of
+the nine within-seed comparisons ($p \geq 0.067$). Because test splits are 80\%
+fake, a detector that labels every video FAKE scores higher accuracy and F1
+than every model, so threshold-free metrics are essential at this scale. We
+release the complete CPU-trainable pipeline and argue that claims of
+improvement from hybrid designs need larger test sets and paired statistical
+tests.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -106,31 +103,33 @@ time. A fake is assembled largely frame by frame, so identity, lighting and
 expression can flicker in ways that no single frame will show
 \cite{guera2018deepfake,zheng2021exploring}.
 
-Our project set out to test whether combining these views actually helps. We
-built a detector (Fig.~\ref{fig:arch}) that runs each sampled face through two
-branches, one spatial and one spectral, fuses the two embeddings for that
-frame, and passes the ordered sequence through a Transformer encoder
-\cite{vaswani2017attention} before making one decision for the whole video. A
-frame-level ResNet18 \cite{he2016deep} serves as the reference point. We
-treated the advantage of the hybrid design as a hypothesis rather than a
-foregone conclusion, and the results below should be read in that light.
+Recent detectors combine these cues, fusing RGB and frequency streams
+\cite{luo2021highfreq,gu2022pel,wang2023sfdg} or modeling time with 3D
+networks and video Transformers \cite{wang2023altfreezing,zhao2023istvt}.
+Such systems are usually evaluated as a whole, which leaves open how much each
+component contributes. We ask that question directly. Our detector
+(Fig.~\ref{fig:arch}) runs each sampled face through a spatial and a spectral
+branch, fuses the two embeddings for that frame, and passes the ordered
+sequence through a Transformer encoder \cite{vaswani2017attention} before
+making one decision for the whole video. Comparing it with an ablation without
+the Transformer and with a frame-level ResNet18 \cite{he2016deep} isolates the
+frequency branch and the temporal module in turn.
 
 The contributions of this work are:
 \begin{itemize}
-\item A complete and reproducible pipeline for video deepfake detection,
-  covering deterministic frame sampling, face detection with a documented
-  fallback chain, cached face crops, training, evaluation, single-video
-  inference and a web demo.
-\item A hybrid architecture that fuses ResNet18 appearance features with
-  features learned from the log-magnitude Fourier spectrum of each face, and
-  models the resulting sequence with a Transformer encoder.
-\item An evaluation protocol that guards against leakage by keeping every
-  manipulated video in the same split as the real video it came from, chooses
-  the decision threshold on validation data alone, and reports bootstrap
-  confidence intervals.
-\item A three-seed comparison on the DFDC training sample of the hybrid model,
-  an ablation without the Transformer and a frame-level baseline, which is
-  explicit about where the evidence is still too thin to support a conclusion.
+\item A leakage-aware evaluation protocol for small video datasets: splits
+  grouped by source video, decision thresholds chosen on validation data
+  only, bootstrap confidence intervals, and paired DeLong tests
+  \cite{delong1988auc} between models scored on the same videos.
+\item A controlled three-way comparison on the DFDC training sample, over
+  three seeds, that separates the effect of the frequency branch from that of
+  the temporal Transformer.
+\item Empirical findings: the frequency branch raises F1 at the operating
+  point, but neither it nor the Transformer yields a statistically
+  significant ROC-AUC gain, and under the 80\% fake class balance a trivial
+  all-FAKE detector beats every model on accuracy and F1.
+\item An open, CPU-trainable implementation covering frame sampling, face
+  cropping, training, evaluation, single-video inference and a web demo.
 \end{itemize}
 
 \begin{figure*}[t]
@@ -171,17 +170,18 @@ $T$ that the Transformer encoder models before a single video-level decision.}
 
 %=====================================================================
 \section{Background and Related Work}
+\label{sec:related}
 %=====================================================================
 
 Detection methods have moved through roughly four phases, and our design
 borrows from the last three.
 
-\textit{Hand-crafted cues.} The earliest work leaned on hand-picked physical or
-semantic cues: a head pose that did not match the face, a subject who never
-blinked, lighting that disagreed between face and background. Cues like these
-are easy to explain to a non-specialist, but each one depends on a specific
-flaw, and the next generation of synthesis tools tends to fix exactly that
-flaw.
+\textit{Hand-crafted cues.} The earliest work relied on physical or semantic
+cues: abnormal eye blinking \cite{li2018ictu}, head poses inconsistent with
+the face \cite{yang2019headpose}, and visual artifacts such as implausible eye
+colour, missing tooth detail or mismatched reflections \cite{matern2019visual}.
+Each cue depends on a specific flaw, and later synthesis tools tend to fix
+exactly that flaw.
 
 \textit{Spatial detectors.} Learned features took over next. MesoNet
 \cite{afchar2018mesonet} used a deliberately shallow network tuned to
@@ -189,30 +189,47 @@ mesoscopic image properties, and the FaceForensics++ benchmark
 \cite{rossler2019faceforensics} showed that a general-purpose classifier such
 as XceptionNet \cite{chollet2017xception}, trained on face crops, was already
 a hard baseline to beat. Fine-tuned ImageNet backbones
-\cite{he2016deep,deng2009imagenet} remain strong on in-distribution data, but
-they latch onto the artifacts of whichever manipulation methods appeared in
-training and degrade on others \cite{tolosana2020survey,mirsky2021survey}.
+\cite{he2016deep,deng2009imagenet} remain strong on in-distribution data but
+degrade on unseen manipulation methods \cite{tolosana2020survey,mirsky2021survey}.
+Much recent work therefore targets generalisation: training on self-blended
+real faces \cite{shiohara2022sbi}, learning the distribution of real faces by
+reconstruction \cite{cao2022recce}, separating method-specific from common
+forgery features \cite{yan2023ucf}, or attending to localised artifacts
+\cite{nguyen2024laanet}. DeepfakeBench \cite{yan2023deepfakebench} showed how
+strongly reported numbers depend on preprocessing and protocol, and
+standardised both across many detectors.
 
-\textit{Frequency-domain detectors.} Several groups noticed that generated
-images carry characteristic artifacts in their Fourier spectra, a side effect
-of upsampling \cite{durall2020watch,frank2020leveraging}, and that a classifier
-trained on one generator could transfer surprisingly well to others
-\cite{wang2020cnn}. F\textsuperscript{3}-Net \cite{qian2020thinking} built
-frequency-aware features directly into a face forgery detector, combining a
-frequency-aware decomposition with local frequency statistics in a two-stream
-network.
+\textit{Frequency-domain detectors.} Generated images carry characteristic
+artifacts in their Fourier spectra, a side effect of upsampling
+\cite{durall2020watch,frank2020leveraging}, and a classifier trained on one
+generator can transfer surprisingly well to others \cite{wang2020cnn}.
+F\textsuperscript{3}-Net \cite{qian2020thinking} built frequency-aware
+decomposition and local frequency statistics into a two-stream face forgery
+detector. Later work fused RGB with high-frequency residuals through
+cross-modality attention \cite{luo2021highfreq}, progressively enhanced and
+fused RGB and fine-grained frequency streams \cite{gu2022pel}, reasoned over
+spatial and frequency features with dynamic graphs \cite{wang2023sfdg}, and
+learned directly in the FFT amplitude and phase domain with a lightweight
+network \cite{tan2024freqnet}.
 
 \textit{Temporal detectors.} The most recent phase treats a video as a
 sequence rather than a bag of frames. Recurrent networks over per-frame CNN
-features \cite{guera2018deepfake}, models of temporal coherence
+features \cite{guera2018deepfake}, temporal-coherence models
 \cite{zheng2021exploring} and analyses of mouth movement
-\cite{haliassos2021lips} all exploit the fact that fakes are synthesised one
-frame at a time. Over the same period, Transformers \cite{vaswani2017attention}
-became a standard tool for sequence modeling in vision
-\cite{dosovitskiy2021image}, and video Transformers
-\cite{bertasius2021space,arnab2021vivit} model space and time jointly, at the
-cost of being expensive to train. This is what led us to use a small
-Transformer over per-frame embeddings rather than a full video Transformer.
+\cite{haliassos2021lips} exploit the fact that fakes are synthesised largely
+one frame at a time. Transformers \cite{vaswani2017attention} have become a
+standard tool for sequence modeling in vision \cite{dosovitskiy2021image}, and
+video Transformers \cite{bertasius2021space,arnab2021vivit} model space and
+time jointly at a high training cost. In deepfake detection, CNN features have
+been combined with Vision Transformers and evaluated on DFDC
+\cite{coccomini2022effvit}, spatial and temporal self-attention have been
+factorised for interpretability \cite{zhao2023istvt}, spatial and temporal
+weights have been trained alternately so that neither dominates
+\cite{wang2023altfreezing}, frames have been tiled into thumbnails so a 2D
+backbone sees temporal change \cite{xu2023tall}, the temporal flow of style
+latents has been used as a cue \cite{choi2024stylelatent}, and frequency
+clues have been extracted along both spatial and temporal axes
+\cite{wang2023stfclue}.
 
 \textit{Datasets.} FaceForensics++ \cite{rossler2019faceforensics} contains
 1{,}000 YouTube videos manipulated by four methods at several compression
@@ -220,45 +237,15 @@ levels. Celeb-DF \cite{li2020celeb} offers higher-quality fakes and is the
 usual choice for testing whether a detector generalises across datasets. The
 DeepFake Detection Challenge (DFDC) \cite{dolhansky2019preview,dolhansky2020dfdc}
 released videos of paid, consenting actors and links each fake to its source
-video. That link is what makes a leakage-free split possible.
+video, which is what makes a leakage-free split possible.
 
-\textit{Positioning of this work.} Our aim was a compact model that brings
-spatial, spectral and temporal evidence together end to end and trains on a
-laptop CPU, evaluated with splits that respect source videos so that frames
-or manipulations of one source video never appear on both sides of the
-train/test boundary.
-
-%=====================================================================
-\section{Terminology and Evaluation Metrics}
-%=====================================================================
-
-We treat FAKE as the positive class throughout. Table~\ref{tab:terms} collects
-the terms and metrics used in the rest of the paper, since a few of them
-(Youden's $J$, source groups, bootstrap intervals) are less standard than
-accuracy or F1.
-
-\begin{table}[t]
-\caption{Key Terminology and Metrics}
-\label{tab:terms}
-\centering
-\footnotesize
-\begin{tabular}{p{2.1cm}p{5.6cm}}
-\toprule
-\textbf{Term} & \textbf{Definition} \\
-\midrule
-Accuracy & Fraction of videos classified correctly. \\
-Precision & $TP/(TP+FP)$: fraction of videos flagged FAKE that are fake. \\
-Recall & $TP/(TP+FN)$: fraction of fake videos that are flagged. \\
-F1-score & Harmonic mean of precision and recall. \\
-ROC-AUC & Area under the ROC curve \cite{fawcett2006introduction}; threshold-free; 0.5 is chance level. \\
-Confusion matrix & Counts of TN, FP, FN and TP at a given threshold. \\
-Youden's $J$ & $\mathrm{TPR}-\mathrm{FPR}$ \cite{youden1950index}; used to choose a decision threshold on validation data. \\
-Source group & A real video together with all fakes made from it. \\
-Grouped split & A split in which no source group spans two partitions. \\
-Bootstrap CI & 95\% percentile interval over 2{,}000 resamples of the test videos, drawn within each class. \\
-\bottomrule
-\end{tabular}
-\end{table}
+\textit{Positioning of this work.} The hybrid systems above are trained on
+large datasets with GPUs and evaluated as complete models, typically against
+other published detectors. Our work is complementary: rather than proposing a
+stronger detector, we take a compact spatial--frequency--temporal design and
+measure what each component adds under a protocol built for small data,
+with source-grouped splits, validation-only thresholds, confidence intervals
+and paired significance tests.
 
 %=====================================================================
 \section{Dataset and Preprocessing}
@@ -408,31 +395,43 @@ before the linear head. Everything else, the data, the split, the loss and
 the optimizer, is identical across the three models, so differences between
 them should come down to the architecture.
 
-\subsection{Threshold selection and confidence intervals}
-We report predictions at the default threshold of 0.5 and at a threshold
-chosen to maximise Youden's $J$ \cite{youden1950index} on the
-\emph{validation} split, which is then applied to the test split unchanged. At
-no point is the test split used to pick a threshold or a checkpoint. For each
-test result we compute a 95\% bootstrap interval for ROC-AUC and F1 from 2{,}000
-resamples of the test videos. Resampling is done separately within the real
-and the fake videos, so every resample keeps the split's class counts and
-ROC-AUC stays defined.
+\subsection{Metrics, thresholds and statistical tests}
+FAKE is the positive class. We report accuracy, precision, recall and F1 at a
+decision threshold, the confusion matrix, and the threshold-free area under
+the ROC curve (ROC-AUC) \cite{fawcett2006introduction}, for which 0.5 is chance
+level. Thresholds are either the default 0.5 or the value that maximises
+Youden's $J=\mathrm{TPR}-\mathrm{FPR}$ \cite{youden1950index} on the
+\emph{validation} split, which is then applied to the test split unchanged; the
+test split is never used to pick a threshold or a checkpoint. For each test
+result we compute a 95\% percentile bootstrap interval for ROC-AUC and F1 from
+2{,}000 resamples of the test videos, drawn separately within the real and the
+fake videos so that every resample keeps the split's class counts. Because
+models trained under the same seed are scored on the same test videos, we
+compare their ROC-AUCs with the paired DeLong test \cite{delong1988auc}, which
+accounts for the correlation between the two sets of scores.
 
 %=====================================================================
 \section{Implementation}
 %=====================================================================
 
 The system is written in Python with PyTorch \cite{paszke2019pytorch},
-torchvision, OpenCV and scikit-learn \cite{pedregosa2011scikit}. We kept it as
-a set of small modules, one each for video reading, face extraction, dataset
-and splits, models, training, evaluation, inference and the user interface,
-and wrote 19 automated checks that exercise every stage from video decoding to
-checkpoint round-trips. Table~\ref{tab:config} lists the training settings.
-The best checkpoint is picked by validation ROC-AUC and saved together with
-its full configuration, so inference rebuilds exactly the model that was
-trained. All experiments ran on a laptop with an Intel Core i7-7500U CPU
-(2 cores, 4 threads), 32\,GB of RAM and no GPU; one epoch of the hybrid model
-took 8--10\,min when the machine was otherwise idle.
+torchvision, OpenCV and scikit-learn \cite{pedregosa2011scikit}, as small
+modules for video reading, face extraction, dataset and splits, models,
+training, evaluation, inference and the user interface, with automated checks
+for every stage. Table~\ref{tab:config} lists the training settings. The best
+checkpoint is picked by validation ROC-AUC and saved together with its full
+configuration, so inference rebuilds exactly the model that was trained. All
+experiments ran on a laptop with an Intel Core i7-7500U CPU (2 cores,
+4 threads), 32\,GB of RAM and no GPU; one epoch of the hybrid model took
+8--10\,min when the machine was otherwise idle.
+
+\textit{Inference cost.} On the same CPU, one forward pass over an 8-frame
+clip (median of 20 runs) takes 443\,ms for the baseline, 643\,ms without the
+Transformer and 648\,ms for the full hybrid. The frequency branch is
+therefore the main added cost, while the Transformer adds 1.6\,M parameters
+but little time. The full single-video pipeline, including decoding a
+1080p video and face detection, takes 6.3--7.1\,s, so preprocessing rather
+than the network dominates inference time.
 
 \begin{table}[t]
 \caption{Model and Training Configuration}
@@ -463,7 +462,9 @@ FAKE, the model's fake probability, the number of frames used and how many of
 them contained a detected face. A minimal Streamlit web interface wraps the
 same function: the user uploads a video, previews it, and gets back the
 prediction alongside one of the face crops the model actually saw. The
-probability shown is the raw sigmoid output and has not been calibrated.
+probability shown is the raw sigmoid output and has not been calibrated. The
+code, configurations and per-video test predictions are available at
+\url{https://github.com/Ayush29bit/DeepFake-Detection}.
 
 %=====================================================================
 \section{Results and Evaluation}
@@ -481,8 +482,9 @@ deviations below summarise the three seeds.
 
 \subsection{Results}
 Table~\ref{tab:results} gives the mean and standard deviation over the three
-seeds, and Table~\ref{tab:seeds} the per-seed ROC-AUC and F1 with their
-bootstrap intervals. Every test split is about 80\% fake, so a trivial
+seeds, Table~\ref{tab:seeds} the per-seed ROC-AUC and F1 with their
+bootstrap intervals, and Table~\ref{tab:delong} the paired DeLong tests.
+Every test split is about 80\% fake, so a trivial
 detector that labels every video FAKE would reach an accuracy of 0.800 and an
 F1 of 0.889 on average, with ROC-AUC 0.5. We list it as a reference point.
 Fig.~\ref{fig:roc} shows the ROC curves, Fig.~\ref{fig:cm} the confusion
@@ -540,6 +542,24 @@ Always FAKE (reference) & -- & $0.800\pm0.036$ & $0.800\pm0.036$ & $1.000$ & $0.
 \end{tabular}
 \end{table*}
 
+\begin{table}[t]
+\caption{Paired DeLong Tests of Test ROC-AUC Within Each Seed ($\Delta$ = first model minus second; two-sided $p$)}
+\label{tab:delong}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{Hybrid vs. base}} & \multicolumn{2}{c}{\textbf{No-Tr. vs. base}} & \multicolumn{2}{c}{\textbf{Hybrid vs. No-Tr.}} \\
+\textbf{Seed} & $\Delta$ & $p$ & $\Delta$ & $p$ & $\Delta$ & $p$ \\
+\midrule
+42 & $-0.053$ & 0.736 & $+0.162$ & 0.067 & $-0.215$ & 0.067 \\
+7 & $+0.039$ & 0.611 & $+0.019$ & 0.879 & $+0.020$ & 0.789 \\
+123 & $+0.059$ & 0.250 & $-0.047$ & 0.673 & $+0.106$ & 0.169 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/roc_curves.png}
@@ -595,12 +615,14 @@ by only $\pm0.012$ across seeds, against $\pm0.179$ for the baseline and
 $\pm0.195$ for the ablation, and its validation-chosen thresholds stayed
 between 0.40 and 0.56, while the other two models' ranged from 0.10 to 0.62.
 
-Third, none of these differences is statistically established. With 11 real
-videos in each test split, a single misclassified real video moves the false
-positive rate by about nine percentage points, and the 95\% intervals for
-ROC-AUC are between 0.24 and 0.45 wide. For every pair of models within a seed the
-ROC-AUC intervals overlap, and the seed-42 interval of the full hybrid,
-[0.386, 0.831], even includes chance level.
+Third, none of these differences is statistically significant. In the paired
+DeLong tests (Table~\ref{tab:delong}) no comparison reaches $p<0.05$; the
+closest are the seed-42 gaps between the ablation and the other two models
+($p=0.067$), and neither gap keeps its size or direction on the other seeds. With 11
+real videos in each test split, a single misclassified real video moves the
+false positive rate by about nine percentage points, the 95\% intervals for
+ROC-AUC are between 0.24 and 0.45 wide, and the seed-42 interval of the full
+hybrid, [0.386, 0.831], even includes chance level.
 
 Fourth, accuracy and F1 flatter every model here. Because about 80\% of the
 test videos are fake, labelling everything FAKE scores higher than every
@@ -637,12 +659,17 @@ switching could change the results for all three models.
 
 \textit{Compute.} Everything ran on a dual-core laptop CPU, which is why we
 stopped at five epochs, batch size 2 and eight frames per video. An early
-baseline run was stopped after two epochs by an out-of-memory error, and
-tracing it showed that the operating system's commit limit was the cause
-rather than the model; the run was repeated under the same budget as the other
-models, and only the repeated run is reported. Decoding full-resolution video
-turned out to be the dominant preprocessing cost and is what pushed us to
-cache the crops.
+baseline run was stopped after two epochs by an out-of-memory error in the
+operating system rather than the model; it was repeated under the same budget
+as the other models, and only the repeated run is reported.
+
+\textit{Comparison with published detectors.} We compare components of one
+design rather than against published detectors such as those in
+Section~\ref{sec:related}. Their reported numbers come from larger training sets, other
+protocols and GPU training, so they are not comparable with ours, and
+re-implementing them under our protocol was beyond our compute. A shared
+benchmark such as DeepfakeBench \cite{yan2023deepfakebench} would be the
+natural setting for that comparison.
 
 \textit{Data provenance.} Our copy of the DFDC sample came from an unofficial
 re-upload. It has the expected size, file names and metadata format, but we
@@ -652,29 +679,42 @@ have not been able to verify it against the official release.
 spectral patterns the frequency branch responds to, so we make no claim about
 what, if anything, it has learned.
 
+\textit{Ethical considerations.} The DFDC videos show paid actors who
+consented to their use for deepfake research \cite{dolhansky2020dfdc}; we used
+them only for this study, did not redistribute them, and show face crops only
+to illustrate the method. A detector of this accuracy must not be used to
+make decisions about real people: at the operating points in
+Table~\ref{tab:seeds} it labels between 2 and 7 of 11 real videos as fake,
+and such false accusations can cause real harm. Detection research can also
+help attackers find what current detectors miss, which is one reason we
+report failure modes alongside results.
+
 %=====================================================================
 \section{Conclusion and Future Work}
 %=====================================================================
 
-We designed and built a complete video deepfake detection system that fuses
-spatial and frequency-domain features for each frame and models their
-sequence with a Transformer encoder, together with a leakage-aware evaluation
-protocol and a working inference path and demo. On a 400-video DFDC sample,
-trained only on a laptop CPU and evaluated over three seeds, both models with
-the frequency branch reached a higher F1 than a frame-level ResNet18 baseline
-on every seed, but their ROC-AUC was close to the baseline's, the Transformer
-gave no consistent gain over averaging the fused frame embeddings, and the
-confidence intervals overlap throughout. The evidence is therefore
-suggestive for the frequency branch and inconclusive for the temporal module.
-What we can say firmly is that the pipeline works end to end and is ready to
-be pointed at larger data.
+We built a video deepfake detector that fuses spatial and frequency-domain
+features for each frame and models their sequence with a Transformer
+encoder, and evaluated it with a leakage-aware protocol that isolates each
+component. On a 400-video DFDC sample, over three seeds, both models with the
+frequency branch reached a higher F1 than a frame-level ResNet18 baseline on
+every seed, but their ROC-AUC was close to the baseline's, the Transformer
+gave no consistent gain over averaging the fused frame embeddings, and no
+paired DeLong test was significant. The evidence is therefore suggestive for
+the frequency branch and inconclusive for the temporal module. More broadly,
+on small and imbalanced test sets accuracy and F1 can be beaten by a trivial
+detector, and single-run comparisons can reverse between seeds; claims that a
+hybrid component helps should be backed by threshold-free metrics, several
+seeds and paired significance tests. The released pipeline makes this
+protocol easy to apply to larger data.
 
 There are several things we would do next:
 \begin{itemize}
 \item Train and test on FaceForensics++ \cite{rossler2019faceforensics}, with
   cross-dataset evaluation on Celeb-DF \cite{li2020celeb}.
 \item Evaluate on much larger test splits, so that confidence intervals become
-  narrow enough to rank the models.
+  narrow enough to rank the models, and compare with published detectors
+  under a shared benchmark protocol \cite{yan2023deepfakebench}.
 \item Replace the Haar cascade with a CNN-based face detector.
 \item Train on a GPU with more frames per video and more epochs, which may be
   what a temporal module needs to show a benefit.
@@ -700,21 +740,40 @@ The authors thank their faculty mentor for guidance.
 \bibitem{qian2020thinking} Y. Qian, G. Yin, L. Sheng, Z. Chen and J. Shao, ``Thinking in frequency: Face forgery detection by mining frequency-aware clues,'' in \textit{Proc. European Conf. Computer Vision (ECCV)}, 2020, pp. 86--103.
 \bibitem{guera2018deepfake} D. G{\"u}era and E. J. Delp, ``Deepfake video detection using recurrent neural networks,'' in \textit{Proc. IEEE Int. Conf. Advanced Video and Signal Based Surveillance (AVSS)}, 2018, pp. 1--6.
 \bibitem{zheng2021exploring} Y. Zheng, J. Bao, D. Chen, M. Zeng and F. Wen, ``Exploring temporal coherence for more general video face forgery detection,'' in \textit{Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)}, 2021, pp. 15044--15054.
+\bibitem{luo2021highfreq} Y. Luo, Y. Zhang, J. Yan and W. Liu, ``Generalizing face forgery detection with high-frequency features,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2021, pp. 16312--16321, doi: 10.1109/CVPR46437.2021.01605.
+\bibitem{gu2022pel} Q. Gu, S. Chen, T. Yao, Y. Chen, S. Ding and R. Yi, ``Exploiting fine-grained face forgery clues via progressive enhancement learning,'' in \textit{Proc. AAAI Conf. Artificial Intelligence (AAAI)}, vol. 36, no. 1, 2022, pp. 735--743, doi: 10.1609/aaai.v36i1.19954.
+\bibitem{wang2023sfdg} Y. Wang, K. Yu, C. Chen, X. Hu and S. Peng, ``Dynamic graph learning with content-guided spatial-frequency relation reasoning for deepfake detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2023, pp. 7278--7287, doi: 10.1109/CVPR52729.2023.00703.
+\bibitem{wang2023altfreezing} Z. Wang, J. Bao, W. Zhou, W. Wang and H. Li, ``AltFreezing for more general video face forgery detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2023, pp. 4129--4138, doi: 10.1109/CVPR52729.2023.00402.
+\bibitem{zhao2023istvt} C. Zhao, C. Wang, G. Hu, H. Chen, C. Liu and J. Tang, ``ISTVT: Interpretable spatial-temporal video transformer for deepfake detection,'' \textit{IEEE Trans. Information Forensics and Security}, vol. 18, pp. 1335--1348, 2023, doi: 10.1109/TIFS.2023.3239223.
 \bibitem{vaswani2017attention} A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, {\L}. Kaiser and I. Polosukhin, ``Attention is all you need,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2017, pp. 5998--6008.
 \bibitem{he2016deep} K. He, X. Zhang, S. Ren and J. Sun, ``Deep residual learning for image recognition,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, 2016, pp. 770--778.
+\bibitem{delong1988auc} E. R. DeLong, D. M. DeLong and D. L. Clarke-Pearson, ``Comparing the areas under two or more correlated receiver operating characteristic curves: A nonparametric approach,'' \textit{Biometrics}, vol. 44, no. 3, pp. 837--845, Sep. 1988, doi: 10.2307/2531595.
+\bibitem{li2018ictu} Y. Li, M.-C. Chang and S. Lyu, ``In ictu oculi: Exposing AI created fake videos by detecting eye blinking,'' in \textit{Proc. IEEE Int. Workshop on Information Forensics and Security (WIFS)}, 2018, pp. 1--7, doi: 10.1109/WIFS.2018.8630787.
+\bibitem{yang2019headpose} X. Yang, Y. Li and S. Lyu, ``Exposing deep fakes using inconsistent head poses,'' in \textit{Proc. IEEE Int. Conf. Acoustics, Speech and Signal Processing (ICASSP)}, 2019, pp. 8261--8265, doi: 10.1109/ICASSP.2019.8683164.
+\bibitem{matern2019visual} F. Matern, C. Riess and M. Stamminger, ``Exploiting visual artifacts to expose deepfakes and face manipulations,'' in \textit{Proc. IEEE Winter Applications of Computer Vision Workshops (WACVW)}, 2019, pp. 83--92, doi: 10.1109/WACVW.2019.00020.
 \bibitem{chollet2017xception} F. Chollet, ``Xception: Deep learning with depthwise separable convolutions,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, 2017, pp. 1251--1258.
 \bibitem{deng2009imagenet} J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li and L. Fei-Fei, ``ImageNet: A large-scale hierarchical image database,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, 2009, pp. 248--255.
+\bibitem{shiohara2022sbi} K. Shiohara and T. Yamasaki, ``Detecting deepfakes with self-blended images,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2022, pp. 18699--18708, doi: 10.1109/CVPR52688.2022.01816.
+\bibitem{cao2022recce} J. Cao, C. Ma, T. Yao, S. Chen, S. Ding and X. Yang, ``End-to-end reconstruction-classification learning for face forgery detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2022, pp. 4103--4112, doi: 10.1109/CVPR52688.2022.00408.
+\bibitem{yan2023ucf} Z. Yan, Y. Zhang, Y. Fan and B. Wu, ``UCF: Uncovering common features for generalizable deepfake detection,'' in \textit{Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)}, 2023, pp. 22355--22366, doi: 10.1109/ICCV51070.2023.02048.
+\bibitem{nguyen2024laanet} D. Nguyen, N. Mejri, I. P. Singh, P. Kuleshova, M. Astrid, A. Kacem, E. Ghorbel and D. Aouada, ``LAA-Net: Localized artifact attention network for quality-agnostic and generalizable deepfake detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2024, pp. 17395--17405, doi: 10.1109/CVPR52733.2024.01647.
+\bibitem{yan2023deepfakebench} Z. Yan, Y. Zhang, X. Yuan, S. Lyu and B. Wu, ``DeepfakeBench: A comprehensive benchmark of deepfake detection,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, vol. 36, 2023, pp. 4534--4565.
 \bibitem{wang2020cnn} S.-Y. Wang, O. Wang, R. Zhang, A. Owens and A. A. Efros, ``CNN-generated images are surprisingly easy to spot\ldots for now,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2020, pp. 8695--8704.
+\bibitem{tan2024freqnet} C. Tan, Y. Zhao, S. Wei, G. Gu, P. Liu and Y. Wei, ``Frequency-aware deepfake detection: Improving generalizability through frequency space domain learning,'' in \textit{Proc. AAAI Conf. Artificial Intelligence (AAAI)}, vol. 38, no. 5, 2024, pp. 5052--5060, doi: 10.1609/aaai.v38i5.28310.
 \bibitem{haliassos2021lips} A. Haliassos, K. Vougioukas, S. Petridis and M. Pantic, ``Lips don't lie: A generalisable and robust approach to face forgery detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2021, pp. 5039--5049.
 \bibitem{dosovitskiy2021image} A. Dosovitskiy \textit{et al.}, ``An image is worth 16x16 words: Transformers for image recognition at scale,'' in \textit{Proc. Int. Conf. Learning Representations (ICLR)}, 2021.
 \bibitem{bertasius2021space} G. Bertasius, H. Wang and L. Torresani, ``Is space-time attention all you need for video understanding?'' in \textit{Proc. Int. Conf. Machine Learning (ICML)}, 2021, pp. 813--824.
 \bibitem{arnab2021vivit} A. Arnab, M. Dehghani, G. Heigold, C. Sun, M. Lu{\v{c}}i{\'c} and C. Schmid, ``ViViT: A video vision transformer,'' in \textit{Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)}, 2021, pp. 6836--6846.
+\bibitem{coccomini2022effvit} D. A. Coccomini, N. Messina, C. Gennaro and F. Falchi, ``Combining EfficientNet and vision transformers for video deepfake detection,'' in \textit{Image Analysis and Processing -- ICIAP 2022} (Lecture Notes in Computer Science). Cham, Switzerland: Springer, 2022, pp. 219--229, doi: 10.1007/978-3-031-06433-3\_19.
+\bibitem{xu2023tall} Y. Xu, J. Liang, G. Jia, Z. Yang, Y. Zhang and R. He, ``TALL: Thumbnail layout for deepfake video detection,'' in \textit{Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)}, 2023, pp. 22601--22611, doi: 10.1109/ICCV51070.2023.02071.
+\bibitem{choi2024stylelatent} J. Choi, T. Kim, Y. Jeong, S. Baek and J. Choi, ``Exploiting style latent flows for generalizing deepfake video detection,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2024, pp. 1133--1143, doi: 10.1109/CVPR52733.2024.00114.
+\bibitem{wang2023stfclue} Y. Wang, C. Peng, D. Liu, N. Wang and X. Gao, ``Spatial-temporal frequency forgery clue for video forgery detection in VIS and NIR scenario,'' \textit{IEEE Trans. Circuits and Systems for Video Technology}, vol. 33, no. 12, pp. 7943--7956, Dec. 2023, doi: 10.1109/TCSVT.2023.3281475.
 \bibitem{li2020celeb} Y. Li, X. Yang, P. Sun, H. Qi and S. Lyu, ``Celeb-DF: A large-scale challenging dataset for DeepFake forensics,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2020, pp. 3207--3216.
 \bibitem{dolhansky2019preview} B. Dolhansky, R. Howes, B. Pflaum, N. Baram and C. Canton Ferrer, ``The Deepfake Detection Challenge (DFDC) preview dataset,'' arXiv:1910.08854, 2019.
 \bibitem{dolhansky2020dfdc} B. Dolhansky, J. Bitton, B. Pflaum, J. Lu, R. Howes, M. Wang and C. Canton Ferrer, ``The DeepFake Detection Challenge (DFDC) dataset,'' arXiv:2006.07397, 2020.
+\bibitem{viola2001rapid} P. Viola and M. Jones, ``Rapid object detection using a boosted cascade of simple features,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, 2001, vol. 1, pp. I-511--I-518.
 \bibitem{fawcett2006introduction} T. Fawcett, ``An introduction to ROC analysis,'' \textit{Pattern Recognition Letters}, vol. 27, no. 8, pp. 861--874, 2006.
 \bibitem{youden1950index} W. J. Youden, ``Index for rating diagnostic tests,'' \textit{Cancer}, vol. 3, no. 1, pp. 32--35, 1950.
-\bibitem{viola2001rapid} P. Viola and M. Jones, ``Rapid object detection using a boosted cascade of simple features,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, 2001, vol. 1, pp. I-511--I-518.
 \bibitem{paszke2019pytorch} A. Paszke \textit{et al.}, ``PyTorch: An imperative style, high-performance deep learning library,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2019, pp. 8024--8035.
 \bibitem{pedregosa2011scikit} F. Pedregosa \textit{et al.}, ``Scikit-learn: Machine learning in Python,'' \textit{Journal of Machine Learning Research}, vol. 12, pp. 2825--2830, 2011.
 \bibitem{loshchilov2019decoupled} I. Loshchilov and F. Hutter, ``Decoupled weight decay regularization,'' in \textit{Proc. Int. Conf. Learning Representations (ICLR)}, 2019.
