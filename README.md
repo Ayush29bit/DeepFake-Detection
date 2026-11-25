@@ -129,32 +129,29 @@ streamlit run app/app.py
 
 ## Results
 
-Test split of the DFDC sample (48 to 69 videos per seed), threshold 0.5,
-5 epochs. Raw numbers for every run are in [runs/eval/](runs/eval/).
+Test splits of the DFDC sample (48 to 69 videos, 11 of them real, per seed),
+5 epochs, mean ± standard deviation over seeds 42, 7 and 123. F1 uses the
+threshold chosen on the validation split. Per-run numbers with 95% bootstrap
+intervals are in [runs/eval/dfdc_comparison_ci.md](runs/eval/dfdc_comparison_ci.md);
+ROC curves and confusion matrices are in [paper/figures/](paper/figures/).
 
-| Model | Seed | Accuracy | Precision | Recall | F1 | ROC-AUC |
-|---|---|---:|---:|---:|---:|---:|
-| ResNet18 baseline | 42 | 0.327 | 0.875 | 0.171 | 0.286 | 0.665 |
-| ResNet18 baseline | 7 | 0.464 | 0.839 | 0.448 | 0.584 | 0.669 |
-| ResNet18 baseline | 123 | 0.542 | 0.895 | 0.459 | 0.607 | 0.767 |
-| Hybrid | 42 | 0.692 | 0.857 | 0.732 | 0.789 | 0.612 |
-| Hybrid | 7 | 0.710 | 0.896 | 0.741 | 0.811 | 0.708 |
-| Hybrid | 123 | 0.708 | 0.871 | 0.730 | 0.794 | 0.826 |
-| Hybrid without Transformer | 42 | 0.500 | 1.000 | 0.366 | 0.536 | 0.827 |
+| Model | F1 | ROC-AUC |
+|---|---:|---:|
+| ResNet18 baseline | 0.642 ± 0.119 | 0.700 ± 0.057 |
+| Hybrid without Transformer | 0.792 ± 0.061 | 0.745 ± 0.073 |
+| Hybrid (proposed) | 0.848 ± 0.065 | 0.715 ± 0.107 |
+| Always FAKE (reference) | 0.889 ± 0.022 | 0.500 |
 
 How to read these numbers:
 
-- The hybrid has higher accuracy and F1 than the baseline on every seed, both
-  at threshold 0.5 and with the threshold chosen on the validation split
-  (F1 0.815 / 0.923 / 0.806 against 0.779 / 0.565 / 0.582).
-- ROC-AUC, which does not depend on the threshold, is close: mean 0.715 for
-  the hybrid against 0.700 for the baseline, and the hybrid is lower on seed 42.
-- The ablation without the Transformer scored higher than the full hybrid on
-  seed 42 (ROC-AUC 0.827), so these runs do not yet show that the temporal
-  module helps.
-- The test sets are small, so one video moves accuracy by about 2 points, and
-  the classes are imbalanced (about 80% FAKE). Treat these numbers as early
-  evidence, not a final result.
+- Both models with the frequency branch have a higher F1 than the baseline on
+  every seed. ROC-AUC, which does not depend on the threshold, is close, and
+  each hybrid variant beats the baseline on two of the three seeds.
+- The Transformer gives no consistent gain over averaging the frame embeddings.
+- About 80% of test videos are fake, so labelling everything FAKE scores a
+  higher F1 than any model. ROC-AUC is the fairer comparison.
+- With 11 real test videos the 95% intervals overlap for every pair of models,
+  so none of these differences is statistically established.
 
 ## Limitations
 
