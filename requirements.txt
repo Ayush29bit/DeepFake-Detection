@@ -11,6 +11,9 @@ certifi>=2024.2
 # Minimal demo UI
 streamlit>=1.32
 
+# Paper figures (paper/figures/make_eval_figures.py)
+matplotlib>=3.8
+
 # Optional face detector (MTCNN). The default detector is OpenCV's bundled
 # Haar cascade, which needs no extra dependency. Install this only if you
 # want --face-detector mtcnn:
