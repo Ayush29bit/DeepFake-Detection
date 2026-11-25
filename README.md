@@ -108,11 +108,12 @@ for the ablation without the Transformer. `python -m training.train --help`
 lists every option.
 
 Evaluate on the test split. `--val-threshold` picks the decision threshold on
-the validation split instead of using 0.5:
+the validation split instead of using 0.5. `--ci` adds 95% bootstrap
+intervals for F1 and ROC-AUC to the comparison table:
 
 ```bash
 python -m evaluation.evaluate --checkpoint checkpoints/dfdc_hybrid_best.pt --manifest data/raw/dfdc/manifest.csv --split test --val-threshold
-python -m evaluation.compare runs/eval/dfdc_*_test*.json
+python -m evaluation.compare --ci runs/eval/dfdc_*_test*.json
 ```
 
 Predict a single video:
@@ -125,6 +126,15 @@ Demo UI:
 
 ```bash
 streamlit run app/app.py
+```
+
+Paper: rebuild the ROC and confusion-matrix figures from `runs/eval/`, then
+package `paper/` for Overleaf (the zip uses forward-slash paths so Overleaf
+keeps the `figures/` and `data/` folders):
+
+```bash
+python paper/figures/make_eval_figures.py
+python paper/make_overleaf_zip.py
 ```
 
 ## Results
