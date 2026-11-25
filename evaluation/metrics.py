@@ -62,6 +62,31 @@ def youden_threshold(y_true: Sequence[int], y_prob: Sequence[float]) -> float:
     return float(min(thresholds[best], 1.0))  # roc_curve's first threshold is inf
 
 
+def bootstrap_ci(y_true: Sequence[int], y_prob: Sequence[float], threshold: float = 0.5,
+                 n_boot: int = 2000, alpha: float = 0.05,
+                 seed: int = 0) -> Dict[str, tuple]:
+    """Percentile bootstrap intervals for ROC-AUC and F1 over videos.
+
+    Resamples videos with replacement within each class, so every resample keeps
+    the split's REAL/FAKE counts and ROC-AUC stays defined even with few REAL
+    videos. Returns {"roc_auc": (low, high), "f1": (low, high)}.
+    """
+    y_true = np.asarray(list(y_true)).astype(int)
+    y_prob = np.asarray(list(y_prob)).astype(float)
+    real, fake = np.flatnonzero(y_true == 0), np.flatnonzero(y_true == 1)
+    if len(real) == 0 or len(fake) == 0:
+        raise ValueError("bootstrap_ci needs both classes in the split")
+    rng = np.random.default_rng(seed)
+    aucs, f1s = np.empty(n_boot), np.empty(n_boot)
+    for i in range(n_boot):
+        idx = np.concatenate([rng.choice(real, len(real)), rng.choice(fake, len(fake))])
+        aucs[i] = roc_auc_score(y_true[idx], y_prob[idx])
+        f1s[i] = f1_score(y_true[idx], (y_prob[idx] >= threshold).astype(int), zero_division=0)
+    q = [100 * alpha / 2, 100 * (1 - alpha / 2)]
+    return {"roc_auc": tuple(float(v) for v in np.percentile(aucs, q)),
+            "f1": tuple(float(v) for v in np.percentile(f1s, q))}
+
+
 def format_metrics(metrics: Dict[str, object], title: str = "") -> str:
     """Render a metrics dict as a short text block, including the matrix."""
     cm = metrics.get("confusion_matrix", {})

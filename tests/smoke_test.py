@@ -22,7 +22,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from evaluation.metrics import compute_metrics, format_metrics, youden_threshold
+from evaluation.metrics import bootstrap_ci, compute_metrics, format_metrics, youden_threshold
 from inference.predict import predict_video
 from models.baseline import ResNetBaseline
 from models.frequency import FrequencyBranch, FrequencyCNN, fft_log_magnitude
@@ -367,7 +367,13 @@ def main() -> int:
         assert single["roc_auc"] is None, "ROC-AUC must be None for a single class"
         assert format_metrics(m)
         assert abs(youden_threshold([0, 0, 1, 1], [0.1, 0.3, 0.35, 0.8]) - 0.35) < 1e-9
-        return "metrics and Youden threshold match hand-computed values"
+        ci = bootstrap_ci(y_true, y_prob, n_boot=200)
+        for key, point in (("roc_auc", m["roc_auc"]), ("f1", m["f1"])):
+            low, high = ci[key]
+            assert 0 <= low <= point <= high <= 1, (key, ci[key], point)
+        perfect = bootstrap_ci([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9], n_boot=50)
+        assert perfect["roc_auc"] == (1.0, 1.0), perfect
+        return "metrics, Youden threshold and bootstrap CIs match hand-computed values"
 
     check("16 metrics are correct on a known example", t16)
 
