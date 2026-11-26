@@ -55,27 +55,27 @@ Ghaziabad, India}
 \maketitle
 
 \begin{abstract}
-Hybrid deepfake detectors increasingly combine pixel-domain appearance,
-frequency-domain artifacts and temporal cues, but the contribution of each
-component is rarely isolated under a protocol that prevents leakage and
-accounts for small test sets. We build a video-level detector in which an
-ImageNet-pretrained ResNet18 encodes each face crop, a lightweight
-convolutional network encodes its log-magnitude 2D Fourier spectrum, and a
-Transformer encoder models the sequence of fused per-frame embeddings. On the
-400-video DeepFake Detection Challenge (DFDC) training sample, with splits that
-keep every fake with its source video and thresholds chosen on validation data
-only, we compare the hybrid with an ablation that replaces the Transformer by
-temporal averaging and with a frame-level ResNet18 baseline over three random
-seeds. Both frequency-augmented models reach a higher F1 than the baseline on
-every seed (mean 0.848 and 0.792 against 0.642), but test ROC-AUC is similar
-(0.715, 0.745 and 0.700), the Transformer gives no consistent gain over
-averaging, and paired DeLong tests find no significant difference in any of
-the nine within-seed comparisons ($p \geq 0.067$). Because test splits are 80\%
-fake, a detector that labels every video FAKE scores higher accuracy and F1
-than every model, so threshold-free metrics are essential at this scale. We
-release the complete CPU-trainable pipeline and argue that claims of
-improvement from hybrid designs need larger test sets and paired statistical
-tests.
+Many recent deepfake detectors combine three kinds of evidence: how a face
+looks, artifacts in its frequency spectrum, and changes across video frames.
+These hybrids are usually evaluated as a whole, so it is unclear how much each
+part contributes. We study this question on small data. Our detector encodes
+each face crop with an ImageNet-pretrained ResNet18 and its 2D Fourier
+spectrum with a small CNN, fuses the two, and models the sequence of fused
+frames with a Transformer encoder. We compare it with two simpler models: the
+same hybrid with the Transformer replaced by averaging over frames, and a
+frame-level ResNet18 baseline. Experiments use the 400-video DeepFake
+Detection Challenge (DFDC) training sample and three random seeds. To prevent
+leakage, every fake is kept in the same split as its source video, and
+decision thresholds are chosen on validation data only. Both models with the
+frequency branch reach a higher F1 than the baseline on every seed (mean
+0.848 and 0.792 against 0.642). Their test ROC-AUC, however, is similar
+(0.715, 0.745 and 0.700), and the Transformer gives no consistent gain over
+averaging. Paired DeLong tests find no significant difference in any of the
+nine within-seed comparisons ($p \geq 0.067$). The test splits are also 80\%
+fake, so a detector that labels every video FAKE scores higher accuracy and
+F1 than every model. We release the full CPU-trainable pipeline, and we argue
+that hybrid designs should be judged with threshold-free metrics, larger test
+sets and paired statistical tests.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -87,35 +87,43 @@ temporal modeling, statistical evaluation, DFDC
 \section{Introduction}
 %=====================================================================
 
-Face-swapping and face-reenactment tools have made convincing manipulated
-videos cheap to produce, and they have been used for harassment, fraud and
-misinformation at a scale no team of human reviewers can check
+Face-swapping and face-reenactment tools have made convincing fake videos
+cheap to produce. Such videos have been used for harassment, fraud and
+misinformation, at a scale no team of human reviewers can check
 \cite{tolosana2020survey}. Early learned detectors treated the task as image
-classification on face crops \cite{rossler2019faceforensics}, which works
-when training and test fakes come from the same method but ignores two
-further sources of evidence: the frequency spectrum, where synthesis leaves
-artifacts that are hard to see in pixel space
-\cite{qian2020thinking,tan2024freqnet}, and time, since a fake assembled
-largely frame by frame can flicker in identity, lighting or expression in
+classification on cropped faces \cite{rossler2019faceforensics}. This works
+when training and test fakes come from the same method, but it ignores two
+other sources of evidence. The first is the frequency spectrum, where
+synthesis leaves artifacts that are hard to see in the pixels themselves
+\cite{qian2020thinking,tan2024freqnet}. The second is time: a fake is built
+largely frame by frame, so identity, lighting or expression can flicker in
 ways no single frame shows \cite{wang2023altfreezing}.
 
-Recent detectors combine these cues, fusing RGB and frequency streams
-\cite{luo2021highfreq,wang2023sfdg} or modeling time with video Transformers
-\cite{zhao2023istvt}. Such systems are usually evaluated as a whole, which
-leaves open how much each component contributes. We ask that question
-directly. Our detector (Fig.~\ref{fig:arch}) runs each sampled face through a
-spatial and a spectral branch, fuses the two embeddings per frame, and passes
-the ordered sequence through a Transformer encoder \cite{vaswani2017attention}
-to make one decision per video. Comparing it with an ablation without the
-Transformer and with a frame-level ResNet18 \cite{he2016deep} isolates the
-frequency branch and the temporal module in turn.
+Recent detectors therefore combine these cues. Some fuse an RGB stream with a
+frequency stream \cite{luo2021highfreq,wang2023sfdg}; others model time with
+video Transformers \cite{zhao2023istvt}. These systems are usually evaluated
+as a whole, which leaves a basic question open: how much does each component
+actually contribute? This paper addresses that question directly. Our
+detector (Fig.~\ref{fig:arch}) passes each sampled face through a spatial
+branch and a frequency branch and fuses the two outputs. A Transformer
+encoder \cite{vaswani2017attention} then reads the ordered sequence of fused
+frames and makes one decision per video. To isolate each component, we
+compare this model with an \emph{ablation} (the same model with one part
+removed), in which the Transformer is replaced by averaging over frames, and
+with a frame-level ResNet18 \cite{he2016deep} baseline.
+
+A second concern is \emph{leakage}: information about test videos reaching
+training. In deepfake datasets, a fake and the real video it was made from
+share the same person and scene. If they fall into different splits, a model
+can score well by recognising the person rather than the manipulation. Our
+evaluation is designed to rule this out.
 
 The contributions of this work are:
 \begin{itemize}
-\item A leakage-aware evaluation protocol for small video datasets: splits
-  grouped by source video, decision thresholds chosen on validation data
-  only, bootstrap confidence intervals, and paired DeLong tests
-  \cite{delong1988auc} between models scored on the same videos.
+\item A leakage-aware evaluation protocol for small video datasets. Splits
+  are grouped by source video, decision thresholds are chosen on validation
+  data only, and results come with bootstrap confidence intervals and paired
+  DeLong tests \cite{delong1988auc}.
 \item A controlled three-way comparison on the DFDC training sample, over
   three seeds, that separates the effect of the frequency branch from that of
   the temporal Transformer.
@@ -168,6 +176,9 @@ $T$ that the Transformer encoder models before a single video-level decision.}
 \label{sec:related}
 %=====================================================================
 
+We group prior work by the kind of evidence it uses, and then position our
+study among them.
+
 \textit{Spatial detectors.} The FaceForensics++ benchmark
 \cite{rossler2019faceforensics} showed that general-purpose CNNs fine-tuned on
 face crops are strong in-distribution detectors, but such models degrade on
@@ -184,39 +195,44 @@ dynamic graphs \cite{wang2023sfdg}, and learned directly in the FFT amplitude
 and phase domain with a lightweight network \cite{tan2024freqnet}.
 
 \textit{Temporal detectors.} Video-level methods exploit the fact that fakes
-are synthesised largely one frame at a time. CNN features have been combined
-with Vision Transformers and evaluated on DFDC \cite{coccomini2022effvit},
-spatial and temporal self-attention have been factorised for
-interpretability \cite{zhao2023istvt}, spatial and temporal weights have been
-trained alternately so that neither dominates \cite{wang2023altfreezing}, the
-temporal flow of style latents has been used as a cue
-\cite{choi2024stylelatent}, and frequency clues have been extracted along both
-spatial and temporal axes \cite{wang2023stfclue}.
+are synthesised largely one frame at a time. Coccomini et al.\ combined CNN
+features with Vision Transformers and evaluated them on DFDC
+\cite{coccomini2022effvit}. ISTVT separates spatial and temporal attention to
+make the model easier to interpret \cite{zhao2023istvt}. AltFreezing trains
+spatial and temporal weights in turn so that neither dominates
+\cite{wang2023altfreezing}. Other work tracks how style features change over
+time \cite{choi2024stylelatent}, or extracts frequency clues along both the
+spatial and the temporal axis \cite{wang2023stfclue}.
 
-\textit{Positioning.} These hybrid systems are trained on large datasets with
-GPUs and evaluated as complete models. Our work is complementary: rather than
-proposing a stronger detector, we take a compact spatial--frequency--temporal
-design and measure what each component adds under a protocol built for small
-data, with source-grouped splits, validation-only thresholds, confidence
+\textit{Positioning.} The hybrid systems above are trained on large datasets
+with GPUs and evaluated as complete models. Our work is complementary. We do
+not propose a stronger detector; instead, we take a compact design that uses
+all three cues and measure what each component adds. The protocol is built
+for small data: source-grouped splits, validation-only thresholds, confidence
 intervals and paired significance tests.
 
 %=====================================================================
 \section{Dataset and Preprocessing}
 %=====================================================================
 
-\textit{Dataset.} We use the training sample of the DFDC
-\cite{dolhansky2020dfdc}: 400 videos of about 10\,s at $1920\times1080$, of
-which 77 are real and 323 fake. Its \texttt{metadata.json} names the original
-video each fake was made from. As the official download did not complete for
-our account, the files came from a public Kaggle re-upload with the same 400
-videos and a metadata file in the official format.
+This section describes the data and how each video is turned into a sequence
+of face crops.
 
-\textit{Leakage-aware split.} Each video is assigned to the source group of
-its original, giving 244 groups. We shuffle groups, not videos, with a fixed
-seed and divide them 70/15/15 within each class, counting a group as real if
-it contains a real video; a check in the code rejects any split in which a
-video or group appears in two partitions. Because whole groups are assigned,
-partition sizes vary with the seed (Table~\ref{tab:split}).
+\textit{Dataset.} We use the training sample of the DFDC
+\cite{dolhansky2020dfdc}: 400 videos of about 10\,s each at
+$1920\times1080$, of which 77 are real and 323 fake. Its
+\texttt{metadata.json} file names the original video that each fake was made
+from. The official download did not complete for our account, so the files
+came from a public Kaggle re-upload. It contains the same 400 videos and a
+metadata file in the official format.
+
+\textit{Leakage-aware split.} We call a real video together with all fakes
+made from it a \emph{source group}; the 400 videos form 244 such groups. We
+shuffle the groups, not the videos, with a fixed seed and divide them 70/15/15
+within each class. A group counts as real if it contains a real video. A check
+in the code rejects any split in which a video or group appears in two
+partitions. Because whole groups are assigned, partition sizes vary slightly
+with the seed (Table~\ref{tab:split}).
 
 \begin{table}[t]
 \caption{Grouped Splits of the DFDC Sample (Videos, Real/Fake)}
@@ -235,44 +251,50 @@ Test & 52 (11/41) & 69 (11/58) & 48 (11/37) \\
 \end{table}
 
 \textit{Frame sampling and face cropping.} From each video we take $T=8$
-frames at evenly spaced indices, so the same video always yields the same
-frames. Faces are found with OpenCV's Haar cascade on a copy of the frame
-downscaled to at most 640\,px; the largest detection is padded by 25\%, made
-square and resized to $224\times224$. A frame without a detection reuses the
-nearest earlier box, then the nearest later one, and finally a centre crop, so
-every video yields exactly $T$ crops. The cascade found a face in 2{,}339 of
-the 3{,}176 frames it examined (73.6\%), and 32 videos had no detection at
-all. Crops are cached as 8-bit arrays. During training, horizontal flip,
-rotation within $\pm5^\circ$ and mild brightness and contrast jitter are
-applied identically to all frames of a sequence, before the Fourier
-transform.
+frames at evenly spaced positions, so the same video always yields the same
+frames. Faces are found with OpenCV's Haar cascade detector, run on a copy of
+the frame downscaled to at most 640\,px. The largest detected face is padded
+by 25\%, made square and resized to $224\times224$ pixels. If a frame has no
+detection, we reuse the box from the nearest earlier frame, then the nearest
+later one, and as a last resort take a centre crop. Every video therefore
+yields exactly $T$ crops. The detector found a face in 2{,}339 of the 3{,}176
+frames it examined (73.6\%), and found none at all in 32 videos. Crops are
+cached on disk. During training we apply light augmentation: horizontal
+flips, rotation within $\pm5^\circ$, and mild brightness and contrast
+changes. The same change is applied to all frames of a video, before the
+Fourier transform.
 
 %=====================================================================
 \section{Proposed Methodology}
 %=====================================================================
 
-A video is represented by its face crops $x_1,\dots,x_T$, each
+The model turns the $T$ face crops of a video into a single probability that
+the video is fake. A video is represented by its crops $x_1,\dots,x_T$, each
 $x_t\in\mathbb{R}^{3\times224\times224}$ normalised with ImageNet statistics.
+Each crop first passes through two branches, whose outputs (embeddings, i.e.
+fixed-length feature vectors) are fused and then modeled over time.
 
-\textit{Spatial branch.} An ImageNet-pretrained ResNet18 \cite{he2016deep}
-without its classification layer maps each crop to a 512-dimensional embedding
-$s_t$; all layers are fine-tuned.
+\textit{Spatial branch.} An ImageNet-pretrained ResNet18 \cite{he2016deep},
+with its final classification layer removed, maps each crop to a
+512-dimensional embedding $s_t$. All of its layers are fine-tuned.
 
-\textit{Frequency branch.} Each crop is de-normalised to $[0,1]$ and converted
-to grayscale $g_t$, whose 2D discrete Fourier transform is
+\textit{Frequency branch.} This branch looks at the crop's frequency content
+rather than its pixels. Each crop is mapped back to the $[0,1]$ pixel range
+and converted to grayscale $g_t$. Its 2D discrete Fourier transform is
 \begin{equation}
 F_t(u,v)=\sum_{x=0}^{H-1}\sum_{y=0}^{W-1} g_t(x,y)\,
 e^{-j2\pi\left(\frac{ux}{H}+\frac{vy}{W}\right)}.
 \end{equation}
-We centre the zero frequency, take $M_t=\log(1+|F_t|)$ to compress the dynamic
-range, and min--max normalise each spectrum to $[0,1]$ (Fig.~\ref{fig:fft}). A
-CNN of four blocks (3$\times$3 convolution, batch normalisation, ReLU,
-2$\times$2 max pooling; 16, 32, 64 and 128 channels), global average pooling
-and a linear layer turn $M_t$ into a 128-dimensional embedding $f_t$. The
-branch has about 0.11\,M parameters and computes the transform inside the
-model. We do not assume that the spectrum identifies fakes on its own; it is
-another view of the same crop, from which the network may or may not learn
-useful cues.
+We shift the zero frequency to the centre and take the log-magnitude
+$M_t=\log(1+|F_t|)$. The logarithm compresses the very large range of
+spectral values, and the $+1$ avoids $\log 0$. Each spectrum is then scaled to
+$[0,1]$ (Fig.~\ref{fig:fft}). A small CNN turns $M_t$ into a 128-dimensional
+embedding $f_t$. It has four blocks, each a 3$\times$3 convolution, batch
+normalisation, ReLU and 2$\times$2 max pooling, with 16, 32, 64 and 128
+channels, followed by global average pooling and a linear layer. The whole
+branch has about 0.11\,M parameters. We do not assume that the spectrum
+identifies fakes on its own. It is simply another view of the same crop, from
+which the network may or may not learn useful cues.
 
 \begin{figure}[t]
 \centering
@@ -282,44 +304,59 @@ spectra given to the frequency branch (right).}
 \label{fig:fft}
 \end{figure}
 
-\textit{Fusion and temporal Transformer.} The embeddings are concatenated and
-projected to $d=256$,
+\textit{Fusion and temporal Transformer.} For each frame, the two embeddings
+are concatenated and projected to a common width $d=256$:
 \begin{equation}
 z_t=\mathrm{LayerNorm}\!\left(W\,[s_t;f_t]+b\right),\quad
-W\in\mathbb{R}^{256\times640},
+W\in\mathbb{R}^{256\times640}.
 \end{equation}
-where layer normalisation removes the scale difference between the branches.
-Fixed sinusoidal positional encodings \cite{vaswani2017attention} are added
-to $z_1,\dots,z_T$, and the sequence passes through a two-layer pre-norm
-Transformer encoder with 8 heads, feed-forward width 1024 and dropout 0.1.
-The outputs are averaged over time and a linear layer gives one logit $\ell$,
-with $p=\sigma(\ell)$ the probability that the video is fake.
+Layer normalisation is needed because the two branches produce values on
+very different scales. The Transformer then models how the fused frames
+relate to each other over time. Since a Transformer has no built-in notion of
+order, we add fixed sinusoidal positional encodings \cite{vaswani2017attention}
+to $z_1,\dots,z_T$. The sequence passes through a two-layer Transformer
+encoder with 8 attention heads, a feed-forward width of 1024, dropout 0.1 and
+layer normalisation before each sub-layer (pre-norm). Finally, the outputs
+are averaged over the $T$ frames, and a linear layer gives one score
+(logit) $\ell$. The probability that the video is fake is
+$p=\sigma(\ell)$.
 
-\textit{Loss.} The training splits hold 4.1 to 4.5 fakes per real video, so
-the positive class is weighted in the binary cross-entropy by
-$w=N_{\mathrm{real}}/N_{\mathrm{fake}}$ from the training split ($w=0.225$,
-$0.242$, $0.222$ for seeds 42, 7, 123):
+\textit{Loss.} The training splits hold 4.1 to 4.5 fakes for every real
+video. Without correction, a model could lower its loss simply by calling
+everything FAKE. We therefore weight the fake class in the binary
+cross-entropy by $w=N_{\mathrm{real}}/N_{\mathrm{fake}}$, computed on the
+training split ($w=0.225$, $0.242$ and $0.222$ for seeds 42, 7 and 123):
 \begin{equation}
 \mathcal{L}=-\left[w\,y\log p+(1-y)\log(1-p)\right].
 \end{equation}
 
-\textit{Baseline and ablation.} The baseline applies the same pretrained
-ResNet18 to each frame, a shared linear head gives one logit per frame, and
-the video logit is their mean. The ablation keeps both branches and the fusion
-but drops the positional encoding and the Transformer, averaging $z_t$ over
-time before the head. Data, splits, loss and optimiser are identical for all
-three models.
+\textit{Baseline and ablation.} The two comparison models differ from the
+hybrid in one component each. The baseline uses only the spatial branch: the
+same pretrained ResNet18 scores each frame with a shared linear head, and the
+video score is the mean of the frame scores. The ablation keeps both branches
+and the fusion but removes the positional encoding and the Transformer; it
+simply averages $z_t$ over time before the linear head. Data, splits, loss and
+optimiser are identical for all three models.
 
-\textit{Metrics and statistical tests.} FAKE is the positive class. We report
-accuracy, precision, recall and F1 at a decision threshold, the confusion
-matrix, and the threshold-free ROC-AUC. Thresholds are either 0.5 or the value
-that maximises Youden's $J=\mathrm{TPR}-\mathrm{FPR}$ on the validation split,
-applied unchanged to the test split; the test split is never used to pick a
-threshold or a checkpoint. For each test result we compute a 95\% percentile
-bootstrap interval for ROC-AUC and F1 from 2{,}000 resamples drawn separately
-within the real and fake videos, so every resample keeps the class counts.
-Because models trained under one seed are scored on the same test videos, we
-compare their ROC-AUCs with the paired DeLong test \cite{delong1988auc}.
+\textit{Metrics.} FAKE is the positive class. At a given decision threshold
+we report accuracy, precision, recall, F1 and the confusion matrix. We also
+report ROC-AUC, the area under the receiver operating characteristic curve.
+It measures how well a model ranks fake videos above real ones, regardless of
+threshold: 0.5 is chance level and 1.0 is perfect. We use two thresholds.
+The first is the default 0.5. The second maximises Youden's
+$J=\mathrm{TPR}-\mathrm{FPR}$ (true positive rate minus false positive rate)
+on the validation split, and is then applied unchanged to the test split. The
+test split is never used to pick a threshold or a checkpoint.
+
+\textit{Statistical tests.} Small test sets make single numbers unreliable,
+so we quantify their uncertainty in two ways. First, a bootstrap confidence
+interval: we resample the test videos 2{,}000 times with replacement,
+recompute ROC-AUC and F1 each time, and report the middle 95\% of the
+values. Resampling is done separately within real and fake videos, so every
+resample keeps the original class counts. Second, models trained under the
+same seed are scored on the same test videos, so their ROC-AUCs are
+correlated. The DeLong test \cite{delong1988auc} accounts for this
+correlation and gives a $p$-value for the difference between two such AUCs.
 
 %=====================================================================
 \section{Implementation}
@@ -358,14 +395,14 @@ Parameters & hybrid 13.03\,M, no Transformer 11.46\,M, \\
 
 \textit{Inference cost.} On the same CPU, one forward pass over an 8-frame
 clip (median of 20 runs) takes 443\,ms for the baseline, 643\,ms without the
-Transformer and 648\,ms for the full hybrid: the frequency branch is the main
-added cost, while the Transformer adds 1.6\,M parameters but little time. The
-full single-video pipeline, including decoding a 1080p video and face
-detection, takes 6.3--7.1\,s, so preprocessing dominates.
+Transformer and 648\,ms for the full hybrid. Most of the added cost therefore
+comes from the frequency branch; the Transformer adds 1.6\,M parameters but
+almost no time. Processing a whole video takes 6.3--7.1\,s, and most of that
+is spent decoding the 1080p video and detecting faces, not in the network.
 
 A command-line tool and a minimal Streamlit web interface take a video and
-return REAL or FAKE with the model's (uncalibrated) fake probability and the
-number of frames with a detected face. The code, configurations and per-video
+return REAL or FAKE. They also show the model's fake probability, which is
+not calibrated, and the number of frames with a detected face. The code, configurations and per-video
 test predictions are available at
 \url{https://github.com/Ayush29bit/DeepFake-Detection}.
 
@@ -373,20 +410,22 @@ test predictions are available at
 \section{Results and Evaluation}
 %=====================================================================
 
-\textit{Setup.} Each model was trained for five epochs under seeds 42, 7 and
-123. The seed fixes the grouped split and the weight initialisation, so the
-three models under one seed share the same split (Table~\ref{tab:split}); the
-augmentation draws are not seeded. For every run, the checkpoint with the best
-validation ROC-AUC was evaluated once on that seed's test split, and models
-are compared within a seed.
+\textit{Setup.} Each model was trained for five epochs under each of three
+seeds (42, 7 and 123). The seed fixes both the grouped split and the initial
+weights, so the three models trained under one seed see exactly the same
+split (Table~\ref{tab:split}). The random draws of the augmentation are not
+seeded. For every run, the checkpoint with the best validation ROC-AUC was
+evaluated once on that seed's test split. Since test splits differ between
+seeds, models are compared within a seed.
 
-\textit{Results.} Table~\ref{tab:results} gives the mean and standard
-deviation over the seeds, Table~\ref{tab:seeds} the per-seed ROC-AUC and F1
-with bootstrap intervals and the confusion matrices, Table~\ref{tab:delong}
-the paired DeLong tests, and Fig.~\ref{fig:roc} the ROC curves. Every test
-split is about 80\% fake, so a detector that labels every video FAKE reaches
-an accuracy of 0.800 and an F1 of 0.889 on average, with ROC-AUC 0.5; we list
-it as a reference.
+\textit{Overview.} Table~\ref{tab:results} summarises each model as the mean
+and standard deviation over the three seeds. Table~\ref{tab:seeds} gives the
+per-seed results with confidence intervals and confusion matrices,
+Table~\ref{tab:delong} the DeLong tests, and Fig.~\ref{fig:roc} the ROC
+curves. As a reference point, we also list a trivial detector that labels
+every video FAKE. Because every test split is about 80\% fake, it reaches an
+average accuracy of 0.800 and an F1 of 0.889, although its ROC-AUC is only
+0.5. The paragraphs after the tables discuss the main findings.
 
 \begin{table*}[t]
 \caption{Test Results, Mean $\pm$ Standard Deviation over Seeds 42, 7 and 123}
@@ -465,100 +504,113 @@ split; the dashed diagonal is chance level.}
 \label{fig:roc}
 \end{figure*}
 
-\textit{Effect of the frequency branch.} Both models that include it reached a
-higher F1 than the baseline on every seed at the validation-chosen threshold
-(mean 0.848 and 0.792 against 0.642). On ROC-AUC the gap is much smaller
-(0.715 and 0.745 against 0.700), and each hybrid variant beat the baseline on
-only two of the three seeds.
+\textit{Effect of the frequency branch.} Adding the frequency branch improved
+F1. At the validation-chosen threshold, both models that include it beat the
+baseline on every seed (mean F1 0.848 and 0.792 against 0.642). The picture
+is weaker for ROC-AUC. Here the gap is small (0.715 and 0.745 against 0.700),
+and each hybrid variant beat the baseline on only two of the three seeds.
 
 \textit{Effect of the Transformer.} The Transformer gave no consistent gain
-over averaging. The full hybrid had the higher ROC-AUC on seeds 7 and 123 but
-by far the lower one on seed 42 (0.612 against 0.827), and the higher F1 on
-seed 7 only. Its one distinctive property was stability at the default
-threshold: its F1 at 0.5 varied by only $\pm0.012$ across seeds, against
-$\pm0.179$ for the baseline and $\pm0.195$ for the ablation, and its
-validation-chosen thresholds stayed between 0.40 and 0.56, while the other
-models' ranged from 0.10 to 0.62.
+over simple averaging. The full hybrid had the higher ROC-AUC on seeds 7 and
+123, but a much lower one on seed 42 (0.612 against 0.827). It had the higher
+F1 on seed 7 only. Its one clear advantage was stability at the default
+threshold. Its F1 at 0.5 varied by only $\pm0.012$ across seeds, compared
+with $\pm0.179$ for the baseline and $\pm0.195$ for the ablation. Its
+validation-chosen thresholds also stayed between 0.40 and 0.56, while those of
+the other two models ranged from 0.10 to 0.62.
 
-\textit{Statistical significance.} No paired DeLong test reaches $p<0.05$
-(Table~\ref{tab:delong}); the closest, the seed-42 gaps between the ablation
-and the other two models ($p=0.067$), do not keep their size or direction on
-the other seeds. With 11 real videos per test split, one misclassified real
-video moves the false positive rate by about nine percentage points, the
-ROC-AUC intervals are 0.24 to 0.45 wide, and the seed-42 interval of the full
-hybrid, [0.386, 0.831], includes chance level.
+\textit{Statistical significance.} None of these differences is
+statistically significant. No DeLong test reaches $p<0.05$
+(Table~\ref{tab:delong}). The two closest results are the seed-42 gaps
+between the ablation and the other models ($p=0.067$), and neither gap keeps
+its size or direction on the other seeds. The small test sets explain why.
+With only 11 real videos per split, one misclassified real video changes the
+false positive rate by about nine percentage points. The ROC-AUC confidence
+intervals are accordingly wide, between 0.24 and 0.45. For the full hybrid on
+seed 42, the interval [0.386, 0.831] even includes chance level.
 
-\textit{Accuracy and F1 under imbalance.} Labelling everything FAKE scores
-higher than every trained model on mean accuracy and mean F1
-(Table~\ref{tab:results}); a trained model beat it only on seed 7. These
-metrics mainly reflect where the threshold sits, so ROC-AUC with the full
-confusion matrices is the fairer basis for comparison. The confusion matrices
-in Table~\ref{tab:seeds} also show different failure modes: the baseline
-missed 21 to 34 fakes on seeds 7 and 123, while the full hybrid on seed 42
-flagged 7 of the 11 real videos as fake.
+\textit{Accuracy and F1 under class imbalance.} The trivial all-FAKE detector
+scores higher than every trained model on mean accuracy and mean F1
+(Table~\ref{tab:results}). A trained model beat it only on seed 7. On data
+this imbalanced, accuracy and F1 mostly reflect where the threshold is set,
+so ROC-AUC and the full confusion matrices are a fairer basis for
+comparison. The confusion matrices in Table~\ref{tab:seeds} also show that
+the models fail in different ways. The baseline missed 21 to 34 fakes on
+seeds 7 and 123, while the full hybrid on seed 42 labelled 7 of the 11 real
+videos as fake.
 
-\textit{Validation versus test.} The full hybrid reached a validation ROC-AUC
-of 0.861, 0.788 and 0.868 on the three seeds but 0.612, 0.708 and 0.826 on
-test, and the baseline's best seed-42 checkpoint came from epoch 1. With 54 or
-55 validation videos, model selection itself is noisy.
+\textit{Validation versus test.} Validation results did not predict test
+results well. The full hybrid reached a validation ROC-AUC of 0.861, 0.788
+and 0.868 on the three seeds, but 0.612, 0.708 and 0.826 on test. The
+baseline's best seed-42 checkpoint came from the very first epoch. With only
+54 or 55 validation videos, choosing the best checkpoint is itself a noisy
+step.
 
 %=====================================================================
 \section{Discussion and Limitations}
 %=====================================================================
 
-\textit{Data scale.} With 11 real videos per test split, the confidence
-intervals are too wide to rank the three models; larger test sets, not more
-seeds on the same 400 videos, would settle the question.
+The results above should be read in light of several limitations.
+
+\textit{Data scale.} This is the main limitation. With 11 real videos per
+test split, the confidence intervals are too wide to rank the three models.
+Larger test sets, rather than more seeds on the same 400 videos, would settle
+the question.
 
 \textit{Face detection and compute.} The Haar cascade missed faces in 26\% of
-frames, and 32 videos contributed centre crops that may contain little face.
-A CNN-based detector could change the results for all models. Training ran
-on a dual-core laptop CPU, which limited us to five epochs, batch size 2 and
-eight frames per video; a temporal module may need more of all three.
+frames. In 32 videos it found none, so these videos contributed centre crops
+that may show little of the face. A CNN-based face detector could change the
+results for all three models. Training also ran on a dual-core laptop CPU,
+which limited us to five epochs, a batch size of 2 and eight frames per
+video. A temporal module may need more of all three to show a benefit.
 
 \textit{Comparison with published detectors.} We compare components of one
-design rather than against the published detectors in
-Section~\ref{sec:related}. Their numbers come from larger training sets, other
-protocols and GPU training, so they are not comparable with ours, and
-re-implementing them under our protocol was beyond our compute; a shared
-benchmark such as DeepfakeBench \cite{yan2023deepfakebench} is the natural
-setting for that comparison.
+design, not our model against the published detectors in
+Section~\ref{sec:related}. Their reported numbers come from larger training
+sets, different protocols and GPU training, so they cannot be compared with
+ours directly. Re-implementing them under our protocol was beyond our
+compute. A shared benchmark such as DeepfakeBench \cite{yan2023deepfakebench}
+is the natural setting for that comparison.
 
 \textit{Data provenance and interpretation.} Our copy of the DFDC sample
-matches the official size, file names and metadata format but could not be
-verified against the official release. We also did not analyse which
-spectral patterns the frequency branch uses, so we make no claim about what
-it has learned.
+matches the official release in size, file names and metadata format, but we
+could not verify it against the official files. We also did not analyse which
+spectral patterns the frequency branch relies on, so we make no claim about
+what it has learned.
 
 \textit{Ethical considerations.} The DFDC videos show paid actors who
-consented to their use for deepfake research \cite{dolhansky2020dfdc}; we used
-them only for this study and did not redistribute them. A detector of this
-accuracy must not be used to make decisions about real people: at the
-operating points in Table~\ref{tab:seeds} it labels 2 to 7 of 11 real videos
-as fake, and such false accusations can cause real harm.
+consented to their use in deepfake research \cite{dolhansky2020dfdc}. We used
+them only for this study and did not redistribute them. A detector with this
+level of accuracy must not be used to make decisions about real people. At
+the operating points in Table~\ref{tab:seeds}, it labels 2 to 7 of the 11
+real videos as fake, and such false accusations can cause real harm.
 
 %=====================================================================
 \section{Conclusion and Future Work}
 %=====================================================================
 
-We built a video deepfake detector that fuses spatial and frequency-domain
-features per frame and models their sequence with a Transformer encoder, and
-evaluated it with a leakage-aware protocol that isolates each component. On a
-400-video DFDC sample over three seeds, both models with the frequency branch
-reached a higher F1 than a frame-level ResNet18 baseline on every seed, but
-their ROC-AUC was close to the baseline's, the Transformer gave no consistent
-gain over averaging, and no paired DeLong test was significant. The evidence
-is therefore suggestive for the frequency branch and inconclusive for the
-temporal module. More broadly, on small and imbalanced test sets a trivial
-detector can beat every model on accuracy and F1, and single-run comparisons
-can reverse between seeds, so claims that a hybrid component helps should
-rest on threshold-free metrics, several seeds and paired significance tests.
-Future work will train and test on FaceForensics++
-\cite{rossler2019faceforensics} with cross-dataset evaluation on Celeb-DF
-\cite{li2020celeb}, use much larger test splits and a CNN-based face
-detector, train longer on a GPU, compare with published detectors under a
-shared benchmark protocol, and analyse what the frequency branch and the
-attention weights respond to.
+We built a video deepfake detector that fuses spatial and frequency features
+for each frame and models the frame sequence with a Transformer encoder. We
+then evaluated it with a leakage-aware protocol designed to isolate each
+component. On a 400-video DFDC sample over three seeds, both models with the
+frequency branch reached a higher F1 than a frame-level ResNet18 baseline on
+every seed. Their ROC-AUC, however, was close to the baseline's. The
+Transformer gave no consistent gain over averaging, and no paired DeLong test
+was significant. The evidence is therefore suggestive for the frequency branch
+and inconclusive for the temporal module.
+
+A broader lesson concerns evaluation. On small, imbalanced test sets, a
+trivial detector can beat every model on accuracy and F1, and comparisons
+based on a single run can reverse between seeds. Claims that a hybrid
+component helps should therefore rest on threshold-free metrics, several
+seeds and paired significance tests.
+
+In future work we plan to train and test on FaceForensics++
+\cite{rossler2019faceforensics}, with cross-dataset evaluation on Celeb-DF
+\cite{li2020celeb}. We also plan to use much larger test splits, a CNN-based
+face detector and longer GPU training, to compare with published detectors
+under a shared benchmark protocol, and to analyse what the frequency branch
+and the attention weights respond to.
 
 \section*{Acknowledgment}
 The authors thank their faculty mentor, Mr. Mayank Lakhotia, for his
