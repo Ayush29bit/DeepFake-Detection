@@ -635,4 +635,67 @@ encouragement throughout this work.
 \bibitem{li2020celeb} Y. Li, X. Yang, P. Sun, H. Qi and S. Lyu, ``Celeb-DF: A large-scale challenging dataset for DeepFake forensics,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2020, pp. 3207--3216.
 \end{thebibliography}
 
+% Project summary requested by the faculty mentor: one final page.
+\onecolumn
+\section*{Project Summary}
+
+Deepfakes are videos in which a person's face has been swapped or re-animated
+by a generative model. They have become cheap to produce and hard to spot by
+eye, which makes automatic detection a practical need. This project built a
+complete, working system that takes a face video and predicts whether it is
+REAL or FAKE, together with a confidence score, and then tested carefully how
+much each part of the system actually helps.
+
+The detector combines three kinds of evidence. The first is spatial: an
+ImageNet-pretrained ResNet18 looks at the appearance of each face crop. The
+second is frequency: each crop is converted to grayscale, transformed with a
+2D Fourier transform, and its log-magnitude spectrum is read by a small
+convolutional network, because generated images often leave traces in the
+spectrum that are hard to see in pixels. The third is temporal: the fused
+spatial and frequency features of eight evenly spaced frames are passed, in
+order, through a two-layer Transformer encoder, which can model how the face
+changes across the video. A single linear layer then gives the probability
+that the video is fake.
+
+In preprocessing, eight frames are sampled at evenly spaced positions, and
+the largest face in each frame is found with OpenCV's Haar cascade detector,
+padded, made square and resized to $224\times224$ pixels. When no face is
+found, the box from a neighbouring frame is reused, so every video yields
+eight crops.
+
+The experiments used the 400-video training sample of the DeepFake Detection
+Challenge (DFDC), of which 77 videos are real and 323 fake. A key design
+choice was to avoid leakage: every fake video was kept in the same split as
+the real video it was made from, so the model cannot score well simply by
+recognising a person it has already seen. Decision thresholds were chosen on
+validation data only, and the test data was never used for tuning. To
+measure each component, three models were trained under three random seeds:
+the full hybrid, a version without the Transformer that simply averages over
+frames, and a frame-level ResNet18 baseline.
+
+The results were mixed and are reported honestly. Both models with the
+frequency branch reached a higher F1 score than the baseline on every seed,
+with a mean of 0.848 for the full hybrid and 0.792 for the version without
+the Transformer, against 0.642 for the baseline. However, their ROC-AUC, which
+does not depend on the decision threshold, was similar: 0.715, 0.745 and 0.700
+respectively. The Transformer did not give a consistent improvement over
+simple averaging, and paired DeLong tests found no statistically significant
+difference between any two models. Because each test split contains only 11
+real videos and is about 80\% fake, a trivial detector that labels every
+video FAKE even scores higher accuracy and F1 than every trained model. This
+shows that, on small and imbalanced datasets, threshold-free metrics,
+several seeds and significance tests are essential before claiming that a
+new component helps.
+
+The project also delivers a usable tool: a command-line script and a simple
+Streamlit web interface return the prediction and fake probability for any
+uploaded video. The pipeline trains on an ordinary laptop CPU, and one video
+is processed in about six to seven seconds.
+
+The main limitations are the small dataset, the short CPU-only training and
+the simple face detector. Future work will train on larger datasets such as
+FaceForensics++, test generalisation on Celeb-DF, use a stronger face
+detector and GPU training, and study what the frequency branch and the
+Transformer actually learn.
+
 \end{document}
